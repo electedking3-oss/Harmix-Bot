@@ -8,11 +8,13 @@ import sys
 import platform
 from typing import Optional
 from datetime import datetime
+from dotenv import load_dotenv
 
 # =============================================================================
 # ========================= HARMIX BOT CONFIGURATION ==========================
 # =============================================================================
 
+load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
 LAVALINK_HOST = "lavalinkv4.serenetia.com"
