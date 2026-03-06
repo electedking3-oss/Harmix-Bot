@@ -13,7 +13,7 @@ from datetime import datetime
 # ========================= HARMIX BOT CONFIGURATION ==========================
 # =============================================================================
 
-TOKEN = "MTQ2MDQyMjA2NDEwNzQyMTg1OQ.GgJZ0X.N2h0jRY2EDVkpv4a1nl166MM1G1HSE0mRTTbKE"
+TOKEN = "MTQ2MDQyMjA2NDEwNzQyMTg1OQ.GJnEVx.WxjTfY58b-t3mzTXHZJx6a_OIOUf23DSq8BuME"
 
 LAVALINK_HOST = "lavalinkv4.serenetia.com"
 LAVALINK_PORT = 443
