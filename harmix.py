@@ -13,7 +13,7 @@ from datetime import datetime
 # ========================= HARMIX BOT CONFIGURATION ==========================
 # =============================================================================
 
-
+TOKEN = os.getenv("TOKEN")
 
 LAVALINK_HOST = "lavalinkv4.serenetia.com"
 LAVALINK_PORT = 443
