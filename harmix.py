@@ -1,8 +1,5 @@
-# Create completely fixed version with proper voice state handling
-# The issue is that the bot connects then leaves - this is usually because
-# the voice state isn't being maintained or there's an issue with the player
 
-harmix_v3 = '''import discord
+import discord
 from discord.ext import commands
 import wavelink
 import asyncio
