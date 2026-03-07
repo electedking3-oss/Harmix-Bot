@@ -18,7 +18,7 @@ TOKEN = os.getenv("TOKEN")
 # Local Lavalink server on Termux
 LAVALINK_HOST = "localhost"
 LAVALINK_PORT = 2333
-LAVALINK_PASSWORD = "your-secure-password-here"  # Change this to match your application.yml
+LAVALINK_PASSWORD = ""  # Change this to match your application.yml
 USE_SSL = False  # Set to False for local ws:// connection
 
 # -------------------- DEBUGGING --------------------
