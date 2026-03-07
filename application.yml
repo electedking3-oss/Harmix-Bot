@@ -8,7 +8,7 @@ spring:
 
 lavalink:
   server:
-    password: "your-secure-password-here"
+    password: "LkJhGfDsA19181716"
     sources:
       youtube: true
       bandcamp: true
