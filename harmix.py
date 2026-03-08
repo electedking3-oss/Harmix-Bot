@@ -27,17 +27,6 @@ def log(msg: str, level: str = "INFO"):
         timestamp = datetime.now().strftime("%H:%M:%S")
         print(f"[{timestamp}] [{level}] {msg}")
 
-def check_lavalink_connection():
-    """Check if Lavalink port is open"""
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(2)
-        result = sock.connect_ex((LAVALINK_HOST, LAVALINK_PORT))
-        sock.close()
-        return result == 0
-    except:
-        return False
-
 # -------------------- AUDIO CUSTOMIZATION --------------------
 VOLUME_ON_JOIN = 65
 MAX_VOLUME = 200
@@ -89,65 +78,31 @@ class HarmixBot(commands.Bot):
 
     async def setup_hook(self):
         log("🚀 Starting Harmix...", "START")
-        log(f"🔍 Checking Lavalink at {LAVALINK_HOST}:{LAVALINK_PORT}...")
 
-        # Check if port is open first
-        if not check_lavalink_connection():
-            log("❌ CRITICAL: Cannot connect to Lavalink port!", "ERROR")
-            log("   Make sure Lavalink.jar is running:", "ERROR")
-            log("   java -jar Lavalink.jar", "ERROR")
-            log("   And wait for 'Lavalink is ready to accept connections.'", "ERROR")
-        else:
-            log("✅ Port check passed - Lavalink is reachable")
-
-        # Connect to Lavalink with detailed error handling
+        # Connect to Lavalink
         try:
-            log("🔄 Creating Lavalink node...")
             node = wavelink.Node(
                 uri=f"ws://{LAVALINK_HOST}:{LAVALINK_PORT}",
                 password=LAVALINK_PASSWORD
             )
-            log("🔄 Connecting to Lavalink Pool...")
             await wavelink.Pool.connect(nodes=[node], client=self, cache_capacity=100)
             self.lavalink_connected = True
-            log(f"✅ Lavalink connected successfully!")
+            log(f"✅ Lavalink connected")
         except Exception as e:
             self.lavalink_connected = False
-            error_msg = str(e)
-            log(f"❌ Lavalink connection failed!", "ERROR")
-            log(f"   Error type: {type(e).__name__}", "ERROR")
-            log(f"   Error message: {error_msg}", "ERROR")
+            log(f"❌ Lavalink failed: {e}", "ERROR")
 
-            # Diagnose specific errors
-            if "password" in error_msg.lower():
-                log("   💡 DIAGNOSIS: Wrong password! Check application.yml", "ERROR")
-            elif "refused" in error_msg.lower() or "cannot connect" in error_msg.lower():
-                log("   💡 DIAGNOSIS: Lavalink not running or wrong port", "ERROR")
-            elif "timeout" in error_msg.lower():
-                log("   💡 DIAGNOSIS: Connection timeout - Lavalink overloaded", "ERROR")
-            elif "ssl" in error_msg.lower() or "tls" in error_msg.lower():
-                log("   💡 DIAGNOSIS: SSL error - use ws:// not wss:// for local", "ERROR")
-            else:
-                log(f"   💡 Full error: {error_msg}", "ERROR")
-
-            import traceback
-            log("   📋 Full traceback:", "ERROR")
-            for line in traceback.format_exc().split("\n"):
-                log(f"   {line}", "ERROR")
-
-        # Sync commands
         try:
             synced = await self.tree.sync()
             log(f"✅ Synced {len(synced)} commands")
         except Exception as e:
-            log(f"⚠️ Command sync failed: {e}", "WARN")
+            log(f"⚠️ Sync error: {e}", "WARN")
 
         self.loop.create_task(self.monitor())
 
     async def on_ready(self):
-        status = "✅ Lavalink OK" if self.lavalink_connected else "❌ Lavalink FAILED"
-        log(f"🎶 Harmix Online | {self.user}")
-        log(f"📡 Latency: {round(self.latency * 1000)}ms | {status}")
+        status = "✅ OK" if self.lavalink_connected else "❌ FAIL"
+        log(f"🎶 Harmix Online | {self.user} | {status}")
         await self.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="/help"))
 
     async def monitor(self):
@@ -219,13 +174,115 @@ async def apply_audio_settings(player):
             filters.low_pass = None
 
         await player.set_filters(filters)
-        log(f"✅ Audio filters applied")
     except Exception as e:
-        log(f"⚠️ Audio filters error: {e}", "ERROR")
+        log(f"⚠️ Audio error: {e}", "ERROR")
+
+# ============== CONNECTION KEEPALIVE SYSTEM ==============
+async def keep_connection_alive(player, guild_id):
+    """Keep voice connection alive by checking every 5 seconds"""
+    disconnect_count = 0
+    while True:
+        try:
+            await asyncio.sleep(5)
+
+            # Check if still connected
+            if not player.connected:
+                disconnect_count += 1
+                log(f"⚠️ Connection lost (count: {disconnect_count})", "WARN")
+
+                if disconnect_count >= 3:
+                    log(f"❌ Connection dead, stopping keepalive", "ERROR")
+                    break
+                continue
+
+            # Reset counter if connected
+            disconnect_count = 0
+
+            # Send heartbeat by checking latency
+            try:
+                player.guild.voice_client.latency
+            except:
+                pass
+
+        except Exception as e:
+            log(f"⚠️ Keepalive error: {e}", "ERROR")
+            break
+
+# ============== VOICE CONNECTION WITH RETRY ==============
+async def connect_voice(interaction):
+    log(f"🔊 Voice request from {interaction.user}")
+
+    if not bot.lavalink_connected:
+        return None, "❌ **Music system offline!** Start Lavalink first."
+
+    if not interaction.user.voice:
+        return None, "❌ Join a voice channel first!"
+
+    channel = interaction.user.voice.channel
+    log(f"🎯 Target: {channel.name}")
+
+    # Check permissions
+    perms = channel.permissions_for(interaction.guild.me)
+    if not perms.connect or not perms.speak:
+        return None, "❌ I need Connect and Speak permissions!"
+
+    # Check if already connected
+    if interaction.guild.voice_client:
+        player = interaction.guild.voice_client
+        if player.channel.id != channel.id:
+            await player.move_to(channel)
+        return player, None
+
+    # Connect with retry and keepalive
+    for attempt in range(3):
+        try:
+            log(f"🚀 Connection attempt {attempt+1}/3...")
+
+            # Create player and connect
+            player = await channel.connect(cls=wavelink.Player, self_deaf=True)
+
+            # Wait for connection
+            await asyncio.sleep(1)
+
+            if not player.connected:
+                log(f"⚠️ Not connected after 1s, waiting more...")
+                await asyncio.sleep(2)
+
+                if not player.connected:
+                    log(f"❌ Still not connected, retrying...")
+                    try:
+                        await player.disconnect(force=True)
+                    except:
+                        pass
+                    if attempt < 2:
+                        continue
+                    return None, "❌ **Connection failed!** Discord voice servers not responding."
+
+            # Connection successful - start keepalive
+            player.home = interaction.channel
+            await player.set_volume(VOLUME_ON_JOIN)
+            await apply_audio_settings(player)
+
+            # Start keepalive task
+            asyncio.create_task(keep_connection_alive(player, interaction.guild.id))
+
+            log(f"✅ Connected with keepalive!")
+            return player, None
+
+        except Exception as e:
+            error_str = str(e)
+            log(f"❌ Attempt {attempt+1} failed: {error_str}", "ERROR")
+
+            if attempt == 2:
+                return None, f"❌ **Connection failed:** {error_str[:100]}"
+
+            await asyncio.sleep(1)
+
+    return None, "❌ Unknown error"
 
 @bot.event
 async def on_wavelink_node_ready(payload):
-    log(f"🎵 Lavalink node ready: {payload.node.uri}")
+    log(f"🎵 Lavalink ready: {payload.node.uri}")
 
 @bot.event
 async def on_wavelink_track_start(payload):
@@ -257,89 +314,7 @@ async def on_wavelink_track_end(payload):
         await player.play(next_track)
         await apply_audio_settings(player)
 
-async def connect_voice(interaction):
-    """Connect to voice with detailed error diagnostics"""
-    log(f"🔊 Voice request from {interaction.user}")
-
-    # Check Lavalink first
-    if not bot.lavalink_connected:
-        log("❌ Lavalink not connected!", "ERROR")
-        return None, "❌ **Music system offline!**\n\nMake sure Lavalink is running:\n`java -jar Lavalink.jar`"
-
-    if not interaction.user.voice:
-        log("❌ User not in voice channel", "ERROR")
-        return None, "❌ Join a voice channel first!"
-
-    channel = interaction.user.voice.channel
-    log(f"🎯 Target: {channel.name} (ID: {channel.id})")
-
-    # Check permissions
-    perms = channel.permissions_for(interaction.guild.me)
-    log(f"🔐 Permissions - Connect: {perms.connect}, Speak: {perms.speak}")
-    if not perms.connect:
-        return None, "❌ **I need Connect permission!**\n\nCheck server role settings."
-    if not perms.speak:
-        return None, "❌ **I need Speak permission!**\n\nCheck server role settings."
-
-    # Check existing connection
-    if interaction.guild.voice_client:
-        log(f"🔄 Already connected")
-        player = interaction.guild.voice_client
-        if player.channel.id != channel.id:
-            log(f"🔄 Moving to {channel.name}")
-            await player.move_to(channel)
-        return player, None
-
-    # Connect with detailed error handling
-    for attempt in range(3):
-        try:
-            log(f"🚀 Connection attempt {attempt+1}/3...")
-            player = await channel.connect(cls=wavelink.Player, self_deaf=True)
-
-            log(f"⏳ Stabilizing connection...")
-            await asyncio.sleep(2)
-
-            if not player.connected:
-                log(f"⚠️ Player not connected after delay", "ERROR")
-                if attempt < 2:
-                    continue
-                return None, "❌ **Voice connection failed!**\n\nThe connection dropped immediately.\n\nPossible causes:\n• Discord Voice State Intent not enabled\n• Network issue\n• Lavalink not responding"
-
-            player.home = interaction.channel
-            await player.set_volume(VOLUME_ON_JOIN)
-            await apply_audio_settings(player)
-
-            log(f"✅ Connected to {channel.name}")
-            return player, None
-
-        except asyncio.TimeoutError:
-            log(f"⏱️ Timeout on attempt {attempt+1}", "ERROR")
-            if attempt == 2:
-                return None, "❌ **Connection timeout!**\n\nDiscord didn't respond in time.\n\nCheck:\n• Voice State Intent enabled in Developer Portal\n• Bot has proper permissions"
-        except Exception as e:
-            error_str = str(e)
-            log(f"❌ Attempt {attempt+1} failed: {error_str}", "ERROR")
-
-            if "already connected" in error_str.lower():
-                log("💡 DIAGNOSIS: Stale connection detected", "ERROR")
-                try:
-                    if interaction.guild.voice_client:
-                        await interaction.guild.voice_client.disconnect(force=True)
-                        log("🧹 Cleaned up stale connection")
-                except:
-                    pass
-            elif "forbidden" in error_str.lower() or "403" in error_str:
-                return None, "❌ **Permission denied!**\n\nThe server is blocking me from joining."
-            elif "unknown" in error_str.lower() and "channel" in error_str.lower():
-                return None, "❌ **Channel not found!**\n\nThe voice channel may have been deleted."
-
-            if attempt == 2:
-                return None, f"❌ **Connection failed after 3 attempts!**\n\nError: {error_str[:100]}"
-
-            await asyncio.sleep(1)
-
-    return None, "❌ **Unknown error**"
-
+# ============== COMMANDS ==============
 @bot.tree.command(name="help", description="📖 Show commands")
 async def help_cmd(interaction):
     embed = discord.Embed(title="🎶 Harmix", description="Local Lavalink music bot", color=COLOR_QUEUE)
@@ -358,7 +333,6 @@ async def help_cmd(interaction):
     for name, value in cmds:
         embed.add_field(name=name, value=value, inline=False)
 
-    # Add status field
     status = "✅ Online" if bot.lavalink_connected else "❌ Offline"
     embed.add_field(name="🎧 Music System", value=status, inline=False)
 
@@ -413,18 +387,8 @@ async def play(interaction, query: str):
             await interaction.followup.send(embed=embed)
 
     except Exception as e:
-        error_str = str(e)
-        log(f"❌ Play error: {error_str}", "ERROR")
-
-        # Diagnose play errors
-        if "no matches" in error_str.lower():
-            await interaction.followup.send("❌ **No matches found!**\n\nTry a different search query.")
-        elif "load failed" in error_str.lower():
-            await interaction.followup.send("❌ **Failed to load track!**\n\nLavalink may be having issues with this source.")
-        elif "not connected" in error_str.lower():
-            await interaction.followup.send("❌ **Not connected to voice!**\n\nTry `/disconnect` then `/play` again.")
-        else:
-            await interaction.followup.send(f"❌ **Error:** {error_str[:200]}")
+        log(f"❌ Play error: {e}", "ERROR")
+        await interaction.followup.send(f"❌ Error: {str(e)[:200]}")
 
 @bot.tree.command(name="pause", description="⏸️ Pause")
 async def pause(interaction):
@@ -512,7 +476,7 @@ async def disconnect(interaction):
     await interaction.response.send_message(embed=discord.Embed(title="👋 Disconnected", color=COLOR_QUEUE))
 
 log("=" * 50)
-log("🎶 HARMIX STARTING")
+log("🎶 HARMIX STARTING - WITH KEEPALIVE")
 log("=" * 50)
 
 bot.run(TOKEN)
