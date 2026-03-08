@@ -1,7 +1,4 @@
-# Create harmix.py with Lavalink v4 compatibility fix
-# The issue: Lavalink v4 requires channelId in voice state
-
-harmix_v4_fix = '''import discord
+import discord
 from discord.ext import commands
 import wavelink
 import asyncio
