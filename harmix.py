@@ -1,11 +1,12 @@
-import discord
+# Create harmix.py with Lavalink v4 compatibility fix
+# The issue: Lavalink v4 requires channelId in voice state
+
+harmix_v4_fix = '''import discord
 from discord.ext import commands
 import wavelink
 import asyncio
 import time
 import os
-import sys
-import socket
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -75,11 +76,11 @@ class HarmixBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         self.loop_mode = {}
         self.lavalink_connected = False
-
+        
     async def setup_hook(self):
         log("🚀 Starting Harmix...", "START")
-
-        # Connect to Lavalink
+        
+        # Connect to Lavalink v4
         try:
             node = wavelink.Node(
                 uri=f"ws://{LAVALINK_HOST}:{LAVALINK_PORT}",
@@ -87,24 +88,24 @@ class HarmixBot(commands.Bot):
             )
             await wavelink.Pool.connect(nodes=[node], client=self, cache_capacity=100)
             self.lavalink_connected = True
-            log(f"✅ Lavalink connected")
+            log(f"✅ Lavalink v4 connected")
         except Exception as e:
             self.lavalink_connected = False
             log(f"❌ Lavalink failed: {e}", "ERROR")
-
+        
         try:
             synced = await self.tree.sync()
             log(f"✅ Synced {len(synced)} commands")
         except Exception as e:
             log(f"⚠️ Sync error: {e}", "WARN")
-
+        
         self.loop.create_task(self.monitor())
-
+        
     async def on_ready(self):
         status = "✅ OK" if self.lavalink_connected else "❌ FAIL"
         log(f"🎶 Harmix Online | {self.user} | {status}")
         await self.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="/help"))
-
+        
     async def monitor(self):
         await self.wait_until_ready()
         while not self.is_closed():
@@ -144,7 +145,7 @@ async def apply_audio_settings(player):
         filters.volume = FILTERS_VOLUME
         filters.equalizer = wavelink.Equalizer(name="Custom_EQ", bands=CUSTOM_EQ_BANDS)
         filters.timescale = wavelink.Timescale(speed=TIMESCALE_SPEED, pitch=TIMESCALE_PITCH, rate=TIMESCALE_RATE)
-
+        
         if ENABLE_KARAOKE:
             filters.karaoke = wavelink.Karaoke(level=1.0, mono_level=1.0, filter_band=220.0, filter_width=100.0)
         else:
@@ -165,120 +166,17 @@ async def apply_audio_settings(player):
             filters.distortion = wavelink.Distortion(sin_offset=0.0, sin_scale=1.0, cos_offset=0.0, cos_scale=1.0, tan_offset=0.0, tan_scale=1.0, offset=0.0, scale=1.0)
         else:
             filters.distortion = None
-
+            
         filters.channel_mix = wavelink.ChannelMix(left_to_left=LEFT_TO_LEFT, left_to_right=LEFT_TO_RIGHT, right_to_left=RIGHT_TO_LEFT, right_to_right=RIGHT_TO_RIGHT)
-
+        
         if ENABLE_LOW_PASS:
             filters.low_pass = wavelink.LowPass(smoothing=0.0)
         else:
             filters.low_pass = None
-
+            
         await player.set_filters(filters)
     except Exception as e:
         log(f"⚠️ Audio error: {e}", "ERROR")
-
-# ============== CONNECTION KEEPALIVE SYSTEM ==============
-async def keep_connection_alive(player, guild_id):
-    """Keep voice connection alive by checking every 5 seconds"""
-    disconnect_count = 0
-    while True:
-        try:
-            await asyncio.sleep(5)
-
-            # Check if still connected
-            if not player.connected:
-                disconnect_count += 1
-                log(f"⚠️ Connection lost (count: {disconnect_count})", "WARN")
-
-                if disconnect_count >= 3:
-                    log(f"❌ Connection dead, stopping keepalive", "ERROR")
-                    break
-                continue
-
-            # Reset counter if connected
-            disconnect_count = 0
-
-            # Send heartbeat by checking latency
-            try:
-                player.guild.voice_client.latency
-            except:
-                pass
-
-        except Exception as e:
-            log(f"⚠️ Keepalive error: {e}", "ERROR")
-            break
-
-# ============== VOICE CONNECTION WITH RETRY ==============
-async def connect_voice(interaction):
-    log(f"🔊 Voice request from {interaction.user}")
-
-    if not bot.lavalink_connected:
-        return None, "❌ **Music system offline!** Start Lavalink first."
-
-    if not interaction.user.voice:
-        return None, "❌ Join a voice channel first!"
-
-    channel = interaction.user.voice.channel
-    log(f"🎯 Target: {channel.name}")
-
-    # Check permissions
-    perms = channel.permissions_for(interaction.guild.me)
-    if not perms.connect or not perms.speak:
-        return None, "❌ I need Connect and Speak permissions!"
-
-    # Check if already connected
-    if interaction.guild.voice_client:
-        player = interaction.guild.voice_client
-        if player.channel.id != channel.id:
-            await player.move_to(channel)
-        return player, None
-
-    # Connect with retry and keepalive
-    for attempt in range(3):
-        try:
-            log(f"🚀 Connection attempt {attempt+1}/3...")
-
-            # Create player and connect
-            player = await channel.connect(cls=wavelink.Player, self_deaf=True)
-
-            # Wait for connection
-            await asyncio.sleep(1)
-
-            if not player.connected:
-                log(f"⚠️ Not connected after 1s, waiting more...")
-                await asyncio.sleep(2)
-
-                if not player.connected:
-                    log(f"❌ Still not connected, retrying...")
-                    try:
-                        await player.disconnect(force=True)
-                    except:
-                        pass
-                    if attempt < 2:
-                        continue
-                    return None, "❌ **Connection failed!** Discord voice servers not responding."
-
-            # Connection successful - start keepalive
-            player.home = interaction.channel
-            await player.set_volume(VOLUME_ON_JOIN)
-            await apply_audio_settings(player)
-
-            # Start keepalive task
-            asyncio.create_task(keep_connection_alive(player, interaction.guild.id))
-
-            log(f"✅ Connected with keepalive!")
-            return player, None
-
-        except Exception as e:
-            error_str = str(e)
-            log(f"❌ Attempt {attempt+1} failed: {error_str}", "ERROR")
-
-            if attempt == 2:
-                return None, f"❌ **Connection failed:** {error_str[:100]}"
-
-            await asyncio.sleep(1)
-
-    return None, "❌ Unknown error"
 
 @bot.event
 async def on_wavelink_node_ready(payload):
@@ -289,7 +187,7 @@ async def on_wavelink_track_start(payload):
     player = payload.player
     track = payload.track
     log(f"▶️ Playing: '{track.title}'")
-
+    
     if hasattr(player, 'home') and player.home:
         embed = discord.Embed(title="🎵 Now Playing", description=f"**[{track.title}]({track.uri})**", color=COLOR_NOW_PLAYING)
         embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
@@ -305,16 +203,84 @@ async def on_wavelink_track_start(payload):
 async def on_wavelink_track_end(payload):
     player = payload.player
     track = payload.track
-
+    
     if bot.loop_mode.get(player.guild.id) == "track":
         await player.queue.put_wait(track)
-
+    
     if not player.queue.is_empty:
         next_track = player.queue.get()
         await player.play(next_track)
         await apply_audio_settings(player)
 
-# ============== COMMANDS ==============
+# CRITICAL FIX: Proper voice state for Lavalink v4
+async def connect_voice_v4(interaction):
+    """Connect with proper voice state for Lavalink v4"""
+    log(f"🔊 Voice request from {interaction.user}")
+    
+    if not bot.lavalink_connected:
+        return None, "❌ **Music system offline!**"
+    
+    if not interaction.user.voice:
+        return None, "❌ Join a voice channel first!"
+    
+    channel = interaction.user.voice.channel
+    log(f"🎯 Target: {channel.name}")
+    
+    # Check permissions
+    perms = channel.permissions_for(interaction.guild.me)
+    if not perms.connect or not perms.speak:
+        return None, "❌ I need Connect and Speak permissions!"
+    
+    # Check if already connected
+    if interaction.guild.voice_client:
+        player = interaction.guild.voice_client
+        if player.channel.id != channel.id:
+            await player.move_to(channel)
+        return player, None
+    
+    # Connect with retry
+    for attempt in range(3):
+        try:
+            log(f"🚀 Connection attempt {attempt+1}/3...")
+            
+            # CRITICAL: Connect with channel_id stored for v4 compatibility
+            player = await channel.connect(cls=wavelink.Player, self_deaf=True)
+            
+            # Store channel_id for Lavalink v4
+            player.channel_id = str(channel.id)
+            log(f"📍 Stored channel_id: {player.channel_id}")
+            
+            # Wait and verify
+            await asyncio.sleep(1)
+            
+            if not player.connected:
+                await asyncio.sleep(2)
+                if not player.connected:
+                    if attempt < 2:
+                        continue
+                    return None, "❌ **Connection failed!**"
+            
+            player.home = interaction.channel
+            await player.set_volume(VOLUME_ON_JOIN)
+            await apply_audio_settings(player)
+            
+            log(f"✅ Connected!")
+            return player, None
+            
+        except Exception as e:
+            error_str = str(e)
+            log(f"❌ Attempt {attempt+1} failed: {error_str}", "ERROR")
+            
+            if attempt == 2:
+                # Check for specific v4 error
+                if "channelId" in error_str or "voice" in error_str.lower():
+                    return None, "❌ **Lavalink v4 Error**\\n\\nTry using Lavalink v3 instead:\\nDownload from: https://github.com/freyacodes/Lavalink/releases/tag/3.7.12"
+                return None, f"❌ **Connection failed:** {error_str[:100]}"
+            
+            await asyncio.sleep(1)
+    
+    return None, "❌ Unknown error"
+
 @bot.tree.command(name="help", description="📖 Show commands")
 async def help_cmd(interaction):
     embed = discord.Embed(title="🎶 Harmix", description="Local Lavalink music bot", color=COLOR_QUEUE)
@@ -332,24 +298,24 @@ async def help_cmd(interaction):
     ]
     for name, value in cmds:
         embed.add_field(name=name, value=value, inline=False)
-
+    
     status = "✅ Online" if bot.lavalink_connected else "❌ Offline"
     embed.add_field(name="🎧 Music System", value=status, inline=False)
-
+    
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="play", description="🎵 Play music")
 async def play(interaction, query: str):
     log(f"🎵 Play: '{query[:50]}...'")
     await interaction.response.defer(thinking=True)
-
-    player, error = await connect_voice(interaction)
+    
+    player, error = await connect_voice_v4(interaction)
     if error:
         return await interaction.followup.send(error)
-
+    
     source = detect_source(query)
     log(f"🔍 Source: {source}")
-
+    
     try:
         if source == "spotify":
             tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.Spotify)
@@ -357,10 +323,10 @@ async def play(interaction, query: str):
             tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.AppleMusic)
         else:
             tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.YouTube)
-
+        
         if not tracks:
             return await interaction.followup.send("❌ No tracks found!")
-
+        
         if isinstance(tracks, wavelink.Playlist):
             for i, track in enumerate(tracks.tracks):
                 if not player.playing and i == 0:
@@ -378,14 +344,14 @@ async def play(interaction, query: str):
             else:
                 await player.queue.put_wait(track)
                 title, color = "📝 Added", COLOR_QUEUE
-
+            
             embed = discord.Embed(title=title, description=f"**[{track.title}]({track.uri})**", color=color)
             embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
             embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
             if track.artwork:
                 embed.set_thumbnail(url=track.artwork)
             await interaction.followup.send(embed=embed)
-
+            
     except Exception as e:
         log(f"❌ Play error: {e}", "ERROR")
         await interaction.followup.send(f"❌ Error: {str(e)[:200]}")
@@ -423,7 +389,7 @@ async def queue(interaction):
     if player.current:
         embed.add_field(name="Now Playing", value=f"**{player.current.title}**", inline=False)
     if not player.queue.is_empty:
-        q = "\n".join([f"`{i+1}.` {t.title[:50]}" for i, t in enumerate(list(player.queue)[:10])])
+        q = "\\n".join([f"`{i+1}.` {t.title[:50]}" for i, t in enumerate(list(player.queue)[:10])])
         embed.add_field(name=f"Up Next ({len(player.queue)})", value=q, inline=False)
     await interaction.response.send_message(embed=embed)
 
@@ -476,7 +442,8 @@ async def disconnect(interaction):
     await interaction.response.send_message(embed=discord.Embed(title="👋 Disconnected", color=COLOR_QUEUE))
 
 log("=" * 50)
-log("🎶 HARMIX STARTING - WITH KEEPALIVE")
+log("🎶 HARMIX STARTING - LAVALINK V4 COMPATIBLE")
 log("=" * 50)
 
 bot.run(TOKEN)
+
