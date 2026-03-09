@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import wavelink
 import asyncio
 import time
@@ -7,6 +8,7 @@ import os
 import traceback
 from datetime import datetime
 from dotenv import load_dotenv
+
 
 # =============================================================================
 # ========================= HARMIX BOT CONFIGURATION ==========================
@@ -152,7 +154,7 @@ async def apply_audio_settings(player):
         # FIXED: Removed 'name' parameter for Wavelink 3.x compatibility
         eq_bands = [wavelink.EqualizerBand(band=b['band'], gain=b['gain']) for b in CUSTOM_EQ_BANDS]
         filters.equalizer = wavelink.Equalizer(bands=eq_bands)
-        
+
         filters.timescale = wavelink.Timescale(speed=TIMESCALE_SPEED, pitch=TIMESCALE_PITCH, rate=TIMESCALE_RATE)
 
         if ENABLE_KARAOKE:
