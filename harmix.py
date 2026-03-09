@@ -1,6 +1,6 @@
 import discord
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
 import wavelink
 import asyncio
 import time
@@ -8,7 +8,6 @@ import os
 import traceback
 from datetime import datetime
 from dotenv import load_dotenv
-
 
 # =============================================================================
 # ========================= HARMIX BOT CONFIGURATION ==========================
@@ -151,10 +150,10 @@ async def apply_audio_settings(player):
         filters = wavelink.Filters()
         filters.volume = FILTERS_VOLUME
         
-        # FIXED: Removed 'name' parameter for Wavelink 3.x compatibility
+        # FIXED: Wavelink 3.x compatible equalizer (no 'name' parameter)
         eq_bands = [wavelink.EqualizerBand(band=b['band'], gain=b['gain']) for b in CUSTOM_EQ_BANDS]
         filters.equalizer = wavelink.Equalizer(bands=eq_bands)
-
+        
         filters.timescale = wavelink.Timescale(speed=TIMESCALE_SPEED, pitch=TIMESCALE_PITCH, rate=TIMESCALE_RATE)
 
         if ENABLE_KARAOKE:
@@ -347,11 +346,14 @@ async def help_cmd(interaction):
 async def play(interaction, query: str):
     try:
         log(f"🎵 Play: '{query[:50]}...'")
-        await interaction.response.defer(thinking=True)
 
+        # FIXED: Check connection first, then defer to avoid timeout
         player, error = await connect_voice(interaction)
         if error:
-            return await interaction.followup.send(error)
+            return await interaction.response.send_message(error, ephemeral=True)
+        
+        # Defer AFTER quick checks to avoid 404 interaction error
+        await interaction.response.defer(thinking=True)
 
         source = detect_source(query)
         log(f"🔍 Detected source: {source}")
@@ -534,7 +536,7 @@ async def disconnect(interaction):
         await interaction.response.send_message("❌ Error disconnecting", ephemeral=True)
 
 log("=" * 50)
-log("🎶 HARMIX STARTING - FIXED VERSION")
+log("🎶 HARMIX STARTING - FULLY FIXED")
 log(f"Wavelink: {wavelink.__version__}")
 log(f"TrackSource: {HAS_TRACKSOURCE}")
 log("=" * 50)
