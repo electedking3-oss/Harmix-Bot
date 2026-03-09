@@ -226,6 +226,167 @@ async def connect_voice(interaction):
     log(f"🔊 Voice request from {interaction.user}")
 
     if not bot.lavalink_connected:
+        returnCOLOR_STOPPED = 0xff0000
+
+# =============================================================================
+# ======================== END OF CONFIGURATION ===============================
+# =============================================================================
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.voice_states = True
+
+class HarmixBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=intents, help_command=None)
+        self.loop_mode = {}
+        self.lavalink_connected = False
+
+    async def setup_hook(self):
+        log("🚀 Starting Harmix...", "START")
+
+        # Connect to Lavalink
+        try:
+            log("🔄 Connecting to Lavalink...")
+            node = wavelink.Node(
+                uri=f"ws://{LAVALINK_HOST}:{LAVALINK_PORT}",
+                password=LAVALINK_PASSWORD
+            )
+            await wavelink.Pool.connect(nodes=[node], client=self, cache_capacity=100)
+            self.lavalink_connected = True
+            log(f"✅ Lavalink connected")
+        except Exception as e:
+            self.lavalink_connected = False
+            log(f"❌ Lavalink failed: {e}", "ERROR")
+            traceback.print_exc()
+
+        try:
+            synced = await self.tree.sync()
+            log(f"✅ Synced {len(synced)} commands")
+        except Exception as e:
+            log(f"⚠️ Sync error: {e}", "WARN")
+
+        self.loop.create_task(self.monitor())
+
+    async def on_ready(self):
+        status = "✅ OK" if self.lavalink_connected else "❌ FAIL"
+        log(f"🎶 Harmix Online | {self.user} | {status}")
+        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="/help"))
+
+    async def monitor(self):
+        await self.wait_until_ready()
+        while not self.is_closed():
+            try:
+                active = sum(1 for g in self.guilds if g.voice_client)
+                log(f"📊 Servers: {len(self.guilds)} | Voice: {active}")
+            except:
+                pass
+            await asyncio.sleep(30)
+
+bot = HarmixBot()
+
+def format_duration(ms):
+    if not ms or ms < 0:
+        return "Unknown"
+    seconds = ms // 1000
+    minutes = seconds // 60
+    hours = minutes // 60
+    if hours > 0:
+        return f"{hours}:{minutes % 60:02d}:{seconds % 60:02d}"
+    return f"{minutes}:{seconds % 60:02d}"
+
+def get_loop_emoji(mode):
+    return {"off": "⏹️", "track": "🔂", "queue": "🔁"}.get(mode, "⏹️")
+
+def detect_source(query):
+    q = query.lower()
+    if "spotify.com" in q:
+        return "spotify"
+    elif "music.apple.com" in q or "apple.co" in q:
+        return "applemusic"
+    return "youtube"
+
+async def apply_audio_settings(player):
+    try:
+        filters = wavelink.Filters()
+        filters.volume = FILTERS_VOLUME
+        
+        # FIXED: Wavelink 3.x uses .set() method
+        filters.equalizer.set(bands=CUSTOM_EQ_BANDS)
+        filters.timescale.set(speed=TIMESCALE_SPEED, pitch=TIMESCALE_PITCH, rate=TIMESCALE_RATE)
+
+        if ENABLE_KARAOKE:
+            filters.karaoke.set(level=1.0, mono_level=1.0, filter_band=220.0, filter_width=100.0)
+        else:
+            filters.karaoke.reset()
+        if ENABLE_TREMOLO:
+            filters.tremolo.set(frequency=5.0, depth=0.5)
+        else:
+            filters.tremolo.reset()
+        if ENABLE_VIBRATO:
+            filters.vibrato.set(frequency=5.0, depth=0.5)
+        else:
+            filters.vibrato.reset()
+        if ENABLE_ROTATION:
+            filters.rotation.set(rotation_hz=0.0)
+        else:
+            filters.rotation.reset()
+        if ENABLE_DISTORTION:
+            filters.distortion.set(sin_offset=0.0, sin_scale=1.0, cos_offset=0.0, cos_scale=1.0, tan_offset=0.0, tan_scale=1.0, offset=0.0, scale=1.0)
+        else:
+            filters.distortion.reset()
+
+        filters.channel_mix.set(left_to_left=LEFT_TO_LEFT, left_to_right=LEFT_TO_RIGHT, right_to_left=RIGHT_TO_LEFT, right_to_right=RIGHT_TO_RIGHT)
+
+        if ENABLE_LOW_PASS:
+            filters.low_pass.set(smoothing=0.0)
+        else:
+            filters.low_pass.reset()
+
+        await player.set_filters(filters)
+        log(f"✅ Audio filters applied")
+    except Exception as e:
+        log(f"⚠️ Audio error: {e}", "ERROR")
+
+@bot.event
+async def on_wavelink_node_ready(payload):
+    log(f"🎵 Lavalink node ready: {payload.node.uri}")
+
+@bot.event
+async def on_wavelink_track_start(payload):
+    player = payload.player
+    track = payload.track
+    log(f"▶️ Playing: '{track.title}'")
+
+    if hasattr(player, 'home') and player.home:
+        embed = discord.Embed(title="🎵 Now Playing", description=f"**[{track.title}]({track.uri})**", color=COLOR_NOW_PLAYING)
+        embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
+        embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
+        if track.artwork:
+            embed.set_thumbnail(url=track.artwork)
+        try:
+            await player.home.send(embed=embed)
+        except:
+            pass
+
+@bot.event
+async def on_wavelink_track_end(payload):
+    player = payload.player
+    track = payload.track
+
+    if bot.loop_mode.get(player.guild.id) == "track":
+        await player.queue.put_wait(track)
+
+    if not player.queue.is_empty:
+        next_track = player.queue.get()
+        await player.play(next_track)
+        await apply_audio_settings(player)
+
+async def connect_voice(interaction):
+    """Connect to voice channel - STABILIZED VERSION"""
+    log(f"🔊 Voice request from {interaction.user}")
+
+    if not bot.lavalink_connected:
         return None, "❌ **Music system offline!**"
 
     if not interaction.user.voice:
@@ -263,9 +424,9 @@ async def connect_voice(interaction):
     try:
         log(f"🚀 Connecting to {channel.name}...")
         
-        # Create player with timeout
+        # FIXED: self_deaf=False so bot can play audio
         player = await asyncio.wait_for(
-            channel.connect(cls=wavelink.Player, self_deaf=True),
+            channel.connect(cls=wavelink.Player, self_deaf=False),
             timeout=10.0
         )
         
@@ -561,7 +722,7 @@ async def disconnect(interaction):
         await interaction.response.send_message("❌ Error disconnecting", ephemeral=True)
 
 log("=" * 50)
-log("🎶 HARMIX STARTING - STABILIZED VERSION")
+log("🎶 HARMIX STARTING - FULLY FIXED")
 log(f"Wavelink: {wavelink.__version__}")
 log(f"TrackSource: {HAS_TRACKSOURCE}")
 log("=" * 50)
