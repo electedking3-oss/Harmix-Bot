@@ -1,0 +1,76 @@
+server:
+  port: 2333
+  address: 0.0.0.0
+
+spring:
+  main:
+    banner-mode: log
+
+  # Add this for Lavalink v4
+  jackson:
+    serialization:
+      indent_output: true
+
+lavalink:
+  server:
+    # Password must match your bot
+    password: "LkJhGfDsA19181716"
+
+    sources:
+      youtube: true
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      http: true
+      local: false
+
+    bufferDurationMs: 400
+    frameBufferDurationMs: 5000
+    youtubePlaylistLoadLimit: 6
+    playerUpdateInterval: 5
+    youtubeSearchEnabled: true
+    soundcloudSearchEnabled: true
+    gc-warnings: true
+
+    # YouTube config for v4
+    youtube:
+      enabled: true
+      allowSearch: true
+      allowDirectVideoIds: true
+      allowDirectPlaylistIds: true
+      # Use OAuth2 if available (optional)
+      # oauth2:
+      #   refreshToken: "your_refresh_token"
+      #   skipInitialization: false
+
+metrics:
+  prometheus:
+    enabled: false
+    endpoint: /metrics
+
+sentry:
+  dsn: ""
+  environment: ""
+
+logging:
+  level:
+    root: INFO
+    lavalink: INFO
+  logback:
+    rollingpolicy:
+      max-file-size: 1GB
+      max-history: 30
+  request:
+    enabled: true
+    includeDebugInfo: true
+    includeHeaders: false
+
+plugins:
+  # YouTube plugin for Lavalink v4 (optional but recommended)
+  # If you have the youtube-plugin, add it here
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
