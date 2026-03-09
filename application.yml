@@ -4,16 +4,16 @@ server:
 
 lavalink:
   plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.13.5"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.0"
       snapshot: false
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.4.1"
       repository: "https://maven.lavalink.dev/releases"
       snapshot: false
   
   server:
-    password: "LkJhGfDsA19181716"  # Your current password
+    password: "LkJhGfDsA19181716"
     sources:
-      youtube: false  # DISABLE built-in (broken)
+      youtube: false  # Disabled built-in (using plugin instead)
       bandcamp: true
       soundcloud: true
       twitch: true
@@ -55,63 +55,28 @@ plugins:
       - WEBEMBEDDED
       - ANDROID_VR
       - TV
-      - TVHTML5EMBEDDED
+      - TVHTML5_SIMPLY
     oauth:
-      enabled: false  # Set to true if you want to use OAuth (recommended for age-restricted)
+      enabled: false
       skipInitialization: false
-    pot:
-      enabled: false  # Set to true if you have poToken for better reliability
 
   lavasrc:
     providers:
-      - "ytsearch:\"%ISRC%\""  # Fallback to YouTube if ISRC available
-      - "ytsearch:%QUERY%"     # Fallback to YouTube search
-      - "scsearch:%QUERY%"     # SoundCloud search
-      - "spsearch:%QUERY%"     # Spotify search
+      - "ytsearch:\"%ISRC%\""  # YouTube fallback
+      - "ytsearch:%QUERY%"     # YouTube search
       - "amsearch:%QUERY%"     # Apple Music search
     sources:
-      spotify: true
-      applemusic: true
+      spotify: false        # DISABLED - Requires Premium now
+      applemusic: true      # ENABLED
       deezer: false
-      yandexmusic: false
-      flowerytts: false
-      youtube: true
-    spotify:
-      clientId: ""        # REQUIRED: Get from https://developer.spotify.com/dashboard
-      clientSecret: ""    # REQUIRED: Get from https://developer.spotify.com/dashboard
-      countryCode: "US"
-      playlistLoadLimit: 6
-      albumLoadLimit: 6
-      resolveArtistsInSearch: true
-      localFiles: false
     applemusic:
-      countryCode: "US"
-      mediaAPIToken: ""   # Optional: For Apple Music API access
+      countryCode: "US"     # Change to your country if needed
       playlistLoadLimit: 6
       albumLoadLimit: 6
-
-metrics:
-  prometheus:
-    enabled: false
-
-sentry:
-  dsn: ""
 
 logging:
-  file:
-    path: ./logs/
   level:
     root: INFO
     lavalink: INFO
-    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
-  request:
-    enabled: true
-    includeClientInfo: true
-    includeHeaders: false
-    includeQueryString: true
-    includePayload: true
-    maxPayloadLength: 10000
-  logback:
-    rollingpolicy:
-      max-file-size: 1GB
-      max-history: 30
+  file:
+    path: ./logs/
