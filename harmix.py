@@ -4,6 +4,7 @@ import wavelink
 import asyncio
 import time
 import os
+import traceback
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -90,7 +91,6 @@ class HarmixBot(commands.Bot):
         except Exception as e:
             self.lavalink_connected = False
             log(f"❌ Lavalink failed: {e}", "ERROR")
-            import traceback
             traceback.print_exc()
         
         try:
@@ -115,6 +115,9 @@ class HarmixBot(commands.Bot):
             except:
                 pass
             await asyncio.sleep(30)
+    
+    async def on_error(self, event, *args, **kwargs):
+        log(f"❌ Error in {event}: {traceback.format_exc()}", "ERROR")
 
 bot = HarmixBot()
 
@@ -214,7 +217,7 @@ async def on_wavelink_track_end(payload):
         await apply_audio_settings(player)
 
 async def connect_voice(interaction):
-    """Connect to voice channel"""
+    """Connect to voice channel with full error handling"""
     log(f"🔊 Voice request from {interaction.user}")
     
     if not bot.lavalink_connected:
@@ -233,10 +236,13 @@ async def connect_voice(interaction):
     
     # Check if already connected
     if interaction.guild.voice_client:
-        player = interaction.guild.voice_client
-        if player.channel.id != channel.id:
-            await player.move_to(channel)
-        return player, None
+        try:
+            player = interaction.guild.voice_client
+            if player.channel.id != channel.id:
+                await player.move_to(channel)
+            return player, None
+        except Exception as e:
+            log(f"⚠️ Error checking existing connection: {e}", "ERROR")
     
     # Connect with retry
     for attempt in range(3):
@@ -265,6 +271,7 @@ async def connect_voice(interaction):
         except Exception as e:
             error_str = str(e)
             log(f"❌ Attempt {attempt+1} failed: {error_str}", "ERROR")
+            traceback.print_exc()
             
             if attempt == 2:
                 return None, f"❌ **Connection failed:** {error_str[:100]}"
@@ -275,168 +282,220 @@ async def connect_voice(interaction):
 
 @bot.tree.command(name="help", description="📖 Show commands")
 async def help_cmd(interaction):
-    embed = discord.Embed(title="🎶 Harmix", description="Local Lavalink music bot", color=COLOR_QUEUE)
-    cmds = [
-        ("🎵 `/play <query>`", "Play music"),
-        ("⏸️ `/pause`", "Pause"),
-        ("▶️ `/resume`", "Resume"),
-        ("⏭️ `/skip`", "Skip"),
-        ("📋 `/queue`", "Queue"),
-        ("🎧 `/nowplaying`", "Current track"),
-        ("🔊 `/volume <0-200>`", "Volume"),
-        ("🔁 `/loop`", "Loop mode"),
-        ("⏹️ `/stop`", "Stop"),
-        ("👋 `/disconnect`", "Disconnect"),
-    ]
-    for name, value in cmds:
-        embed.add_field(name=name, value=value, inline=False)
-    
-    status = "✅ Online" if bot.lavalink_connected else "❌ Offline"
-    embed.add_field(name="🎧 Music System", value=status, inline=False)
-    
-    await interaction.response.send_message(embed=embed)
+    try:
+        embed = discord.Embed(title="🎶 Harmix", description="Local Lavalink music bot", color=COLOR_QUEUE)
+        cmds = [
+            ("🎵 `/play <query>`", "Play music"),
+            ("⏸️ `/pause`", "Pause"),
+            ("▶️ `/resume`", "Resume"),
+            ("⏭️ `/skip`", "Skip"),
+            ("📋 `/queue`", "Queue"),
+            ("🎧 `/nowplaying`", "Current track"),
+            ("🔊 `/volume <0-200>`", "Volume"),
+            ("🔁 `/loop`", "Loop mode"),
+            ("⏹️ `/stop`", "Stop"),
+            ("👋 `/disconnect`", "Disconnect"),
+        ]
+        for name, value in cmds:
+            embed.add_field(name=name, value=value, inline=False)
+        
+        status = "✅ Online" if bot.lavalink_connected else "❌ Offline"
+        embed.add_field(name="🎧 Music System", value=status, inline=False)
+        
+        await interaction.response.send_message(embed=embed)
+    except Exception as e:
+        log(f"❌ Help error: {e}", "ERROR")
+        await interaction.response.send_message("❌ Error showing help", ephemeral=True)
 
 @bot.tree.command(name="play", description="🎵 Play music")
 async def play(interaction, query: str):
-    log(f"🎵 Play: '{query[:50]}...'")
-    await interaction.response.defer(thinking=True)
-    
-    player, error = await connect_voice(interaction)
-    if error:
-        return await interaction.followup.send(error)
-    
-    source = detect_source(query)
-    log(f"🔍 Source: {source}")
-    
     try:
-        if source == "spotify":
-            tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.Spotify)
-        elif source == "applemusic":
-            tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.AppleMusic)
-        else:
-            tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.YouTube)
+        log(f"🎵 Play: '{query[:50]}...'")
+        await interaction.response.defer(thinking=True)
         
-        if not tracks:
-            return await interaction.followup.send("❌ No tracks found!")
+        player, error = await connect_voice(interaction)
+        if error:
+            return await interaction.followup.send(error)
         
-        if isinstance(tracks, wavelink.Playlist):
-            for i, track in enumerate(tracks.tracks):
-                if not player.playing and i == 0:
+        source = detect_source(query)
+        log(f"🔍 Source: {source}")
+        
+        try:
+            if source == "spotify":
+                tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.Spotify)
+            elif source == "applemusic":
+                tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.AppleMusic)
+            else:
+                tracks = await wavelink.Playable.search(query, source=wavelink.TrackSource.YouTube)
+            
+            if not tracks:
+                return await interaction.followup.send("❌ No tracks found!")
+            
+            if isinstance(tracks, wavelink.Playlist):
+                for i, track in enumerate(tracks.tracks):
+                    if not player.playing and i == 0:
+                        await player.play(track)
+                        await apply_audio_settings(player)
+                    else:
+                        await player.queue.put_wait(track)
+                await interaction.followup.send(f"📋 Added {len(tracks.tracks)} tracks")
+            else:
+                track = tracks[0]
+                if not player.playing:
                     await player.play(track)
                     await apply_audio_settings(player)
+                    title, color = "🎵 Now Playing", COLOR_NOW_PLAYING
                 else:
                     await player.queue.put_wait(track)
-            await interaction.followup.send(f"📋 Added {len(tracks.tracks)} tracks")
-        else:
-            track = tracks[0]
-            if not player.playing:
-                await player.play(track)
-                await apply_audio_settings(player)
-                title, color = "🎵 Now Playing", COLOR_NOW_PLAYING
+                    title, color = "📝 Added", COLOR_QUEUE
+                
+                embed = discord.Embed(title=title, description=f"**[{track.title}]({track.uri})**", color=color)
+                embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
+                embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
+                if track.artwork:
+                    embed.set_thumbnail(url=track.artwork)
+                await interaction.followup.send(embed=embed)
+                
+        except Exception as e:
+            error_str = str(e)
+            log(f"❌ Play error: {error_str}", "ERROR")
+            traceback.print_exc()
+            
+            if "Failed to load tracks" in error_str:
+                await interaction.followup.send("❌ **YouTube blocked this request!**\\n\\nTry using a Spotify link instead:\\n`/play https://open.spotify.com/track/...`")
             else:
-                await player.queue.put_wait(track)
-                title, color = "📝 Added", COLOR_QUEUE
-            
-            embed = discord.Embed(title=title, description=f"**[{track.title}]({track.uri})**", color=color)
-            embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
-            embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
-            if track.artwork:
-                embed.set_thumbnail(url=track.artwork)
-            await interaction.followup.send(embed=embed)
-            
+                await interaction.followup.send(f"❌ Error: {error_str[:200]}")
     except Exception as e:
-        log(f"❌ Play error: {e}", "ERROR")
-        import traceback
+        log(f"❌ Critical play error: {e}", "ERROR")
         traceback.print_exc()
-        await interaction.followup.send(f"❌ Error: {str(e)[:200]}")
+        try:
+            await interaction.followup.send("❌ Critical error occurred")
+        except:
+            pass
 
 @bot.tree.command(name="pause", description="⏸️ Pause")
 async def pause(interaction):
-    player = interaction.guild.voice_client
-    if not player or not player.playing:
-        return await interaction.response.send_message("❌ Not playing!", ephemeral=True)
-    await player.pause(True)
-    await interaction.response.send_message(embed=discord.Embed(title="⏸️ Paused", color=COLOR_PAUSED))
+    try:
+        player = interaction.guild.voice_client
+        if not player or not player.playing:
+            return await interaction.response.send_message("❌ Not playing!", ephemeral=True)
+        await player.pause(True)
+        await interaction.response.send_message(embed=discord.Embed(title="⏸️ Paused", color=COLOR_PAUSED))
+    except Exception as e:
+        log(f"❌ Pause error: {e}", "ERROR")
+        await interaction.response.send_message("❌ Error pausing", ephemeral=True)
 
 @bot.tree.command(name="resume", description="▶️ Resume")
 async def resume(interaction):
-    player = interaction.guild.voice_client
-    if not player or not player.paused:
-        return await interaction.response.send_message("❌ Not paused!", ephemeral=True)
-    await player.pause(False)
-    await interaction.response.send_message(embed=discord.Embed(title="▶️ Resumed", color=COLOR_NOW_PLAYING))
+    try:
+        player = interaction.guild.voice_client
+        if not player or not player.paused:
+            return await interaction.response.send_message("❌ Not paused!", ephemeral=True)
+        await player.pause(False)
+        await interaction.response.send_message(embed=discord.Embed(title="▶️ Resumed", color=COLOR_NOW_PLAYING))
+    except Exception as e:
+        log(f"❌ Resume error: {e}", "ERROR")
+        await interaction.response.send_message("❌ Error resuming", ephemeral=True)
 
 @bot.tree.command(name="skip", description="⏭️ Skip")
 async def skip(interaction):
-    player = interaction.guild.voice_client
-    if not player or not player.playing:
-        return await interaction.response.send_message("❌ Nothing to skip!", ephemeral=True)
-    await player.skip()
-    await interaction.response.send_message(embed=discord.Embed(title="⏭️ Skipped", color=COLOR_QUEUE))
+    try:
+        player = interaction.guild.voice_client
+        if not player or not player.playing:
+            return await interaction.response.send_message("❌ Nothing to skip!", ephemeral=True)
+        await player.skip()
+        await interaction.response.send_message(embed=discord.Embed(title="⏭️ Skipped", color=COLOR_QUEUE))
+    except Exception as e:
+        log(f"❌ Skip error: {e}", "ERROR")
+        await interaction.response.send_message("❌ Error skipping", ephemeral=True)
 
 @bot.tree.command(name="queue", description="📋 Queue")
 async def queue(interaction):
-    player = interaction.guild.voice_client
-    if not player or (player.queue.is_empty and not player.current):
-        return await interaction.response.send_message("📭 Empty!", ephemeral=True)
-    embed = discord.Embed(title="📋 Queue", color=COLOR_QUEUE)
-    if player.current:
-        embed.add_field(name="Now Playing", value=f"**{player.current.title}**", inline=False)
-    if not player.queue.is_empty:
-        q = "\\n".join([f"`{i+1}.` {t.title[:50]}" for i, t in enumerate(list(player.queue)[:10])])
-        embed.add_field(name=f"Up Next ({len(player.queue)})", value=q, inline=False)
-    await interaction.response.send_message(embed=embed)
+    try:
+        player = interaction.guild.voice_client
+        if not player or (player.queue.is_empty and not player.current):
+            return await interaction.response.send_message("📭 Empty!", ephemeral=True)
+        embed = discord.Embed(title="📋 Queue", color=COLOR_QUEUE)
+        if player.current:
+            embed.add_field(name="Now Playing", value=f"**{player.current.title}**", inline=False)
+        if not player.queue.is_empty:
+            q = "\\n".join([f"`{i+1}.` {t.title[:50]}" for i, t in enumerate(list(player.queue)[:10])])
+            embed.add_field(name=f"Up Next ({len(player.queue)})", value=q, inline=False)
+        await interaction.response.send_message(embed=embed)
+    except Exception as e:
+        log(f"❌ Queue error: {e}", "ERROR")
+        await interaction.response.send_message("❌ Error showing queue", ephemeral=True)
 
 @bot.tree.command(name="nowplaying", description="🎧 Current track")
 async def nowplaying(interaction):
-    player = interaction.guild.voice_client
-    if not player or not player.current:
-        return await interaction.response.send_message("❌ Nothing playing!", ephemeral=True)
-    track = player.current
-    embed = discord.Embed(title="🎵 Now Playing", description=f"**[{track.title}]({track.uri})**", color=COLOR_NOW_PLAYING)
-    embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
-    embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
-    if track.artwork:
-        embed.set_thumbnail(url=track.artwork)
-    await interaction.response.send_message(embed=embed)
+    try:
+        player = interaction.guild.voice_client
+        if not player or not player.current:
+            return await interaction.response.send_message("❌ Nothing playing!", ephemeral=True)
+        track = player.current
+        embed = discord.Embed(title="🎵 Now Playing", description=f"**[{track.title}]({track.uri})**", color=COLOR_NOW_PLAYING)
+        embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
+        embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
+        if track.artwork:
+            embed.set_thumbnail(url=track.artwork)
+        await interaction.response.send_message(embed=embed)
+    except Exception as e:
+        log(f"❌ NP error: {e}", "ERROR")
+        await interaction.response.send_message("❌ Error", ephemeral=True)
 
 @bot.tree.command(name="volume", description="🔊 Volume (0-200)")
 async def volume(interaction, volume: int):
-    if not 0 <= volume <= 200:
-        return await interaction.response.send_message("❌ 0-200!", ephemeral=True)
-    player = interaction.guild.voice_client
-    if not player:
-        return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
-    await player.set_volume(volume)
-    emoji = "🔇" if volume == 0 else "🔈" if volume < 30 else "🔉" if volume < 70 else "🔊"
-    await interaction.response.send_message(embed=discord.Embed(title=f"{emoji} {volume}%", color=COLOR_QUEUE))
+    try:
+        if not 0 <= volume <= 200:
+            return await interaction.response.send_message("❌ 0-200!", ephemeral=True)
+        player = interaction.guild.voice_client
+        if not player:
+            return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
+        await player.set_volume(volume)
+        emoji = "🔇" if volume == 0 else "🔈" if volume < 30 else "🔉" if volume < 70 else "🔊"
+        await interaction.response.send_message(embed=discord.Embed(title=f"{emoji} {volume}%", color=COLOR_QUEUE))
+    except Exception as e:
+        log(f"❌ Volume error: {e}", "ERROR")
+        await interaction.response.send_message("❌ Error setting volume", ephemeral=True)
 
 @bot.tree.command(name="loop", description="🔁 Loop mode")
 async def loop(interaction, mode: discord.app_commands.Choice[str]):
-    bot.loop_mode[interaction.guild.id] = mode.value
-    desc = {"off": "Off", "track": "Track", "queue": "Queue"}
-    await interaction.response.send_message(embed=discord.Embed(title=f"{get_loop_emoji(mode.value)} {mode.name}", description=desc[mode.value], color=COLOR_QUEUE))
+    try:
+        bot.loop_mode[interaction.guild.id] = mode.value
+        desc = {"off": "Off", "track": "Track", "queue": "Queue"}
+        await interaction.response.send_message(embed=discord.Embed(title=f"{get_loop_emoji(mode.value)} {mode.name}", description=desc[mode.value], color=COLOR_QUEUE))
+    except Exception as e:
+        log(f"❌ Loop error: {e}", "ERROR")
+        await interaction.response.send_message("❌ Error", ephemeral=True)
 
 @bot.tree.command(name="stop", description="⏹️ Stop")
 async def stop(interaction):
-    player = interaction.guild.voice_client
-    if not player:
-        return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
-    player.queue.clear()
-    bot.loop_mode[interaction.guild.id] = "off"
-    await player.stop()
-    await interaction.response.send_message(embed=discord.Embed(title="⏹️ Stopped", color=COLOR_STOPPED))
+    try:
+        player = interaction.guild.voice_client
+        if not player:
+            return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
+        player.queue.clear()
+        bot.loop_mode[interaction.guild.id] = "off"
+        await player.stop()
+        await interaction.response.send_message(embed=discord.Embed(title="⏹️ Stopped", color=COLOR_STOPPED))
+    except Exception as e:
+        log(f"❌ Stop error: {e}", "ERROR")
+        await interaction.response.send_message("❌ Error stopping", ephemeral=True)
 
 @bot.tree.command(name="disconnect", description="👋 Disconnect")
 async def disconnect(interaction):
-    player = interaction.guild.voice_client
-    if not player:
-        return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
-    await player.disconnect()
-    await interaction.response.send_message(embed=discord.Embed(title="👋 Disconnected", color=COLOR_QUEUE))
+    try:
+        player = interaction.guild.voice_client
+        if not player:
+            return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
+        await player.disconnect()
+        await interaction.response.send_message(embed=discord.Embed(title="👋 Disconnected", color=COLOR_QUEUE))
+    except Exception as e:
+        log(f"❌ Disconnect error: {e}", "ERROR")
+        await interaction.response.send_message("❌ Error disconnecting", ephemeral=True)
 
 log("=" * 50)
-log("🎶 HARMIX STARTING - LAVALINK V4")
+log("🎶 HARMIX STARTING - ULTRA STABLE VERSION")
 log("=" * 50)
 
 bot.run(TOKEN)
