@@ -148,7 +148,11 @@ async def apply_audio_settings(player):
     try:
         filters = wavelink.Filters()
         filters.volume = FILTERS_VOLUME
-        filters.equalizer = wavelink.Equalizer(name="Custom_EQ", bands=CUSTOM_EQ_BANDS)
+        
+        # FIXED: Removed 'name' parameter for Wavelink 3.x compatibility
+        eq_bands = [wavelink.EqualizerBand(band=b['band'], gain=b['gain']) for b in CUSTOM_EQ_BANDS]
+        filters.equalizer = wavelink.Equalizer(bands=eq_bands)
+        
         filters.timescale = wavelink.Timescale(speed=TIMESCALE_SPEED, pitch=TIMESCALE_PITCH, rate=TIMESCALE_RATE)
 
         if ENABLE_KARAOKE:
@@ -314,7 +318,7 @@ async def help_cmd(interaction):
     try:
         embed = discord.Embed(title="🎶 Harmix", description="Local Lavalink music bot", color=COLOR_QUEUE)
         cmds = [
-            ("🎵 `/play <query>`", "Play music (YouTube/Spotify/Apple Music)"),
+            ("🎵 `/play <query>`", "Play music (YouTube/Apple Music)"),
             ("⏸️ `/pause`", "Pause"),
             ("▶️ `/resume`", "Resume"),
             ("⏭️ `/skip`", "Skip"),
@@ -487,6 +491,11 @@ async def volume(interaction, volume: int):
         await interaction.response.send_message("❌ Error setting volume", ephemeral=True)
 
 @bot.tree.command(name="loop", description="🔁 Loop mode")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="Off", value="off"),
+    app_commands.Choice(name="Track", value="track"),
+    app_commands.Choice(name="Queue", value="queue")
+])
 async def loop(interaction, mode: discord.app_commands.Choice[str]):
     try:
         bot.loop_mode[interaction.guild.id] = mode.value
@@ -523,7 +532,7 @@ async def disconnect(interaction):
         await interaction.response.send_message("❌ Error disconnecting", ephemeral=True)
 
 log("=" * 50)
-log("🎶 HARMIX STARTING - UNIVERSAL VERSION")
+log("🎶 HARMIX STARTING - FIXED VERSION")
 log(f"Wavelink: {wavelink.__version__}")
 log(f"TrackSource: {HAS_TRACKSOURCE}")
 log("=" * 50)
