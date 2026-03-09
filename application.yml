@@ -2,75 +2,116 @@ server:
   port: 2333
   address: 0.0.0.0
 
-spring:
-  main:
-    banner-mode: log
-
-  # Add this for Lavalink v4
-  jackson:
-    serialization:
-      indent_output: true
-
 lavalink:
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.13.5"
+      snapshot: false
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.4.1"
+      repository: "https://maven.lavalink.dev/releases"
+      snapshot: false
+  
   server:
-    # Password must match your bot
-    password: "LkJhGfDsA19181716"
-
+    password: "LkJhGfDsA19181716"  # Your current password
     sources:
-      youtube: true
+      youtube: false  # DISABLE built-in (broken)
       bandcamp: true
       soundcloud: true
       twitch: true
       vimeo: true
       http: true
       local: false
-
+    filters:
+      volume: true
+      equalizer: true
+      karaoke: true
+      timescale: true
+      tremolo: true
+      vibrato: true
+      distortion: true
+      rotation: true
+      channelMix: true
+      lowPass: true
     bufferDurationMs: 400
     frameBufferDurationMs: 5000
+    opusEncodingQuality: 10
+    resamplingQuality: MEDIUM
+    trackStuckThresholdMs: 10000
+    useSeekGhosting: true
     youtubePlaylistLoadLimit: 6
     playerUpdateInterval: 5
     youtubeSearchEnabled: true
     soundcloudSearchEnabled: true
     gc-warnings: true
 
-    # YouTube config for v4
-    youtube:
-      enabled: true
-      allowSearch: true
-      allowDirectVideoIds: true
-      allowDirectPlaylistIds: true
-      # Use OAuth2 if available (optional)
-      # oauth2:
-      #   refreshToken: "your_refresh_token"
-      #   skipInitialization: false
-
-metrics:
-  prometheus:
-    enabled: false
-    endpoint: /metrics
-
-sentry:
-  dsn: ""
-  environment: ""
-
-logging:
-  level:
-    root: INFO
-    lavalink: INFO
-  logback:
-    rollingpolicy:
-      max-file-size: 1GB
-      max-history: 30
-  request:
-    enabled: true
-    includeDebugInfo: true
-    includeHeaders: false
-
 plugins:
-  # YouTube plugin for Lavalink v4 (optional but recommended)
-  # If you have the youtube-plugin, add it here
   youtube:
     enabled: true
     allowSearch: true
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
+    clients:
+      - MUSIC
+      - WEB
+      - WEBEMBEDDED
+      - ANDROID_VR
+      - TV
+      - TVHTML5EMBEDDED
+    oauth:
+      enabled: false  # Set to true if you want to use OAuth (recommended for age-restricted)
+      skipInitialization: false
+    pot:
+      enabled: false  # Set to true if you have poToken for better reliability
+
+  lavasrc:
+    providers:
+      - "ytsearch:\"%ISRC%\""  # Fallback to YouTube if ISRC available
+      - "ytsearch:%QUERY%"     # Fallback to YouTube search
+      - "scsearch:%QUERY%"     # SoundCloud search
+      - "spsearch:%QUERY%"     # Spotify search
+      - "amsearch:%QUERY%"     # Apple Music search
+    sources:
+      spotify: true
+      applemusic: true
+      deezer: false
+      yandexmusic: false
+      flowerytts: false
+      youtube: true
+    spotify:
+      clientId: ""        # REQUIRED: Get from https://developer.spotify.com/dashboard
+      clientSecret: ""    # REQUIRED: Get from https://developer.spotify.com/dashboard
+      countryCode: "US"
+      playlistLoadLimit: 6
+      albumLoadLimit: 6
+      resolveArtistsInSearch: true
+      localFiles: false
+    applemusic:
+      countryCode: "US"
+      mediaAPIToken: ""   # Optional: For Apple Music API access
+      playlistLoadLimit: 6
+      albumLoadLimit: 6
+
+metrics:
+  prometheus:
+    enabled: false
+
+sentry:
+  dsn: ""
+
+logging:
+  file:
+    path: ./logs/
+  level:
+    root: INFO
+    lavalink: INFO
+    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
+  request:
+    enabled: true
+    includeClientInfo: true
+    includeHeaders: false
+    includeQueryString: true
+    includePayload: true
+    maxPayloadLength: 10000
+  logback:
+    rollingpolicy:
+      max-file-size: 1GB
+      max-history: 30
