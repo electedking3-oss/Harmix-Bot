@@ -77,19 +77,19 @@ class HarmixBot(commands.Bot):
     async def setup_hook(self):
         log("🚀 Starting Harmix...", "START")
 
-        # Connect to Lavalink v3
+        # Connect to Lavalink v4
         try:
-            log("🔄 Connecting to Lavalink v3...")
+            log("🔄 Connecting to Lavalink v4...")
             node = wavelink.Node(
                 uri=f"ws://{LAVALINK_HOST}:{LAVALINK_PORT}",
                 password=LAVALINK_PASSWORD
             )
             await wavelink.Pool.connect(nodes=[node], client=self, cache_capacity=100)
             self.lavalink_connected = True
-            log(f"✅ Lavalink v3 connected at {LAVALINK_HOST}:{LAVALINK_PORT}")
+            log(f"✅ Lavalink v4 connected")
         except Exception as e:
             self.lavalink_connected = False
-            log(f"❌ Lavalink connection failed: {e}", "ERROR")
+            log(f"❌ Lavalink failed: {e}", "ERROR")
             import traceback
             traceback.print_exc()
 
@@ -218,7 +218,7 @@ async def connect_voice(interaction):
     log(f"🔊 Voice request from {interaction.user}")
 
     if not bot.lavalink_connected:
-        return None, "❌ **Music system offline!** Start Lavalink first."
+        return None, "❌ **Music system offline!**"
 
     if not interaction.user.voice:
         return None, "❌ Join a voice channel first!"
@@ -253,7 +253,7 @@ async def connect_voice(interaction):
                 if not player.connected:
                     if attempt < 2:
                         continue
-                    return None, "❌ **Connection failed!** Discord voice servers not responding."
+                    return None, "❌ **Connection failed!**"
 
             player.home = interaction.channel
             await player.set_volume(VOLUME_ON_JOIN)
@@ -436,7 +436,7 @@ async def disconnect(interaction):
     await interaction.response.send_message(embed=discord.Embed(title="👋 Disconnected", color=COLOR_QUEUE))
 
 log("=" * 50)
-log("🎶 HARMIX STARTING - LAVALINK V3 COMPATIBLE")
+log("🎶 HARMIX STARTING - LAVALINK V4")
 log("=" * 50)
 
 bot.run(TOKEN)
