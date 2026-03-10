@@ -4,8 +4,6 @@ from discord.ext import commands
 import wavelink
 import asyncio
 import os
-import traceback
-from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,188 +13,79 @@ LAVALINK_HOST = "localhost"
 LAVALINK_PORT = 2333
 LAVALINK_PASSWORD = "LkJhGfDsA19181716"
 
-DEBUG_MODE = True
-
-def log(msg: str, level: str = "INFO"):
-    if DEBUG_MODE:
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        print(f"[{timestamp}] [{level}] {msg}")
-
-log(f"Wavelink version: {wavelink.__version__}")
-
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 
-class HarmixBot(commands.Bot):
-    def __init__(self):
-        super().__init__(command_prefix="!", intents=intents, help_command=None)
-        self.loop_mode = {}
-
-    async def setup_hook(self):
-        log("🚀 Starting Harmix...")
-        try:
-            node = wavelink.Node(
-                uri=f"ws://{LAVALINK_HOST}:{LAVALINK_PORT}",
-                password=LAVALINK_PASSWORD
-            )
-            await wavelink.Pool.connect(nodes=[node], client=self, cache_capacity=100)
-            log("✅ Lavalink connected")
-        except Exception as e:
-            log(f"❌ Lavalink failed: {e}", "ERROR")
-            traceback.print_exc()
-
-        try:
-            synced = await self.tree.sync()
-            log(f"✅ Synced {len(synced)} commands")
-        except Exception as e:
-            log(f"⚠️ Sync error: {e}", "WARN")
-
-    async def on_ready(self):
-        log(f"🎶 Harmix Online | {self.user}")
-        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="/help"))
-
-bot = HarmixBot()
-
-def format_duration(ms):
-    if not ms or ms < 0:
-        return "Unknown"
-    seconds = ms // 1000
-    minutes = seconds // 60
-    hours = minutes // 60
-    if hours > 0:
-        return f"{hours}:{minutes % 60:02d}:{seconds % 60:02d}"
-    return f"{minutes}:{seconds % 60:02d}"
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
-async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
-    log(f"🎵 Lavalink node ready: {payload.node.uri}")
-
-# FIXED: Correct Wavelink 3.x event signature with payload
-@bot.event
-async def on_wavelink_track_start(payload: wavelink.TrackStartEventPayload):
+async def on_ready():
+    print(f"🎶 Harmix Online: {bot.user}")
+    
+    # Connect to Lavalink
     try:
-        player = payload.player
-        track = payload.track
-        
-        if not player:
-            log("⚠️ No player in track_start event")
-            return
-            
-        log(f"▶️ Now Playing: '{track.title}'")
-        
-        # Send message to channel if we have home set
-        if hasattr(player, 'home') and player.home:
-            embed = discord.Embed(
-                title="🎵 Now Playing", 
-                description=f"**[{track.title}]({track.uri})**",
-                color=0x00ff88
-            )
-            embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
-            embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
-            if track.artwork:
-                embed.set_thumbnail(url=track.artwork)
-            try:
-                await player.home.send(embed=embed)
-            except Exception as e:
-                log(f"⚠️ Failed to send now playing: {e}", "WARN")
+        node = wavelink.Node(
+            uri=f"ws://{LAVALINK_HOST}:{LAVALINK_PORT}",
+            password=LAVALINK_PASSWORD
+        )
+        await wavelink.Pool.connect(nodes=[node], client=bot)
+        print("✅ Lavalink connected")
     except Exception as e:
-        log(f"❌ Track start error: {e}", "ERROR")
-        traceback.print_exc()
-
-# REMOVED: on_wavelink_track_end - Wavelink 3.x advises against using this!
-# Let Wavelink handle queue automatically
-
-async def connect_voice(interaction):
-    """Simple voice connection"""
-    log(f"🔊 Connect request from {interaction.user}")
-
-    if not interaction.user.voice:
-        return None, "❌ Join a voice channel first!"
-
-    channel = interaction.user.voice.channel
-
-    if interaction.guild.voice_client:
-        player = interaction.guild.voice_client
-        if player.channel.id == channel.id:
-            return player, None
-        await player.move_to(channel)
-        return player, None
-
-    try:
-        player = await channel.connect(cls=wavelink.Player, self_deaf=False)
-        await asyncio.sleep(0.5)
-        
-        if not player.connected:
-            await player.disconnect()
-            return None, "❌ Connection failed!"
-
-        # Set home channel for messages
-        player.home = interaction.channel
-        await player.set_volume(100)
-        log(f"✅ Connected to {channel.name}")
-        return player, None
-        
-    except Exception as e:
-        log(f"❌ Connection error: {e}", "ERROR")
-        return None, f"❌ Connection failed: {str(e)[:100]}"
+        print(f"❌ Lavalink error: {e}")
 
 @bot.tree.command(name="play", description="🎵 Play music")
-async def play(interaction, query: str):
+async def play(interaction: discord.Interaction, query: str):
+    await interaction.response.defer(thinking=True)
+    
+    # Check user in voice
+    if not interaction.user.voice:
+        return await interaction.followup.send("❌ Join a voice channel first!")
+    
+    channel = interaction.user.voice.channel
+    
+    # Get or create player
+    player = interaction.guild.voice_client
+    if not player:
+        try:
+            player = await channel.connect(cls=wavelink.Player, self_deaf=False)
+            print(f"✅ Connected to {channel.name}")
+        except Exception as e:
+            return await interaction.followup.send(f"❌ Connection failed: {e}")
+    elif player.channel.id != channel.id:
+        await player.move_to(channel)
+    
+    # Search and play
     try:
-        log(f"🎵 Play: '{query[:50]}...'")
-        
-        player, error = await connect_voice(interaction)
-        if error:
-            return await interaction.response.send_message(error, ephemeral=True)
-        
-        await interaction.response.defer(thinking=True)
-        
-        log("🔍 Searching...")
+        print(f"🔍 Searching: {query}")
         tracks = await wavelink.Playable.search(query)
         
         if not tracks:
             return await interaction.followup.send("❌ No tracks found!")
         
         track = tracks[0]
-        log(f"🎵 Found: {track.title}")
+        print(f"🎵 Found: {track.title}")
         
-        log("▶️ Starting playback...")
+        # Play without any events or filters
         await player.play(track)
-        log("✅ Play command sent")
+        print(f"▶️ Playing: {track.title}")
         
-        embed = discord.Embed(
-            title="🎵 Now Playing", 
-            description=f"**[{track.title}]({track.uri})**",
-            color=0x00ff88
-        )
-        embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
-        embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
-        
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(f"🎵 Now Playing: **{track.title}**")
         
     except Exception as e:
-        log(f"❌ Play error: {e}", "ERROR")
-        traceback.print_exc()
-        try:
-            await interaction.followup.send(f"❌ Error: {str(e)[:200]}")
-        except:
-            pass
+        print(f"❌ Play error: {e}")
+        await interaction.followup.send(f"❌ Error: {e}")
 
 @bot.tree.command(name="disconnect", description="👋 Disconnect")
-async def disconnect(interaction):
-    try:
-        player = interaction.guild.voice_client
-        if not player:
-            return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
-        await player.disconnect()
-        await interaction.response.send_message("👋 Disconnected")
-    except Exception as e:
-        log(f"❌ Disconnect error: {e}", "ERROR")
-        await interaction.response.send_message("❌ Error", ephemeral=True)
+async def disconnect(interaction: discord.Interaction):
+    player = interaction.guild.voice_client
+    if not player:
+        return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
+    
+    await player.disconnect()
+    await interaction.response.send_message("👋 Disconnected")
 
-log("=" * 50)
-log("🎶 HARMIX - EVENTS FIXED")
-log("=" * 50)
+# NO EVENT HANDLERS AT ALL - Let Wavelink handle everything internally
 
+print("🚀 Starting Harmix...")
 bot.run(TOKEN)
