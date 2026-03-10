@@ -69,25 +69,43 @@ def format_duration(ms):
     return f"{minutes}:{seconds % 60:02d}"
 
 @bot.event
-async def on_wavelink_node_ready(payload):
+async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
     log(f"🎵 Lavalink node ready: {payload.node.uri}")
 
-# SIMPLIFIED: Minimal track start event
+# FIXED: Correct Wavelink 3.x event signature with payload
 @bot.event
-async def on_wavelink_track_start(payload):
+async def on_wavelink_track_start(payload: wavelink.TrackStartEventPayload):
     try:
+        player = payload.player
         track = payload.track
+        
+        if not player:
+            log("⚠️ No player in track_start event")
+            return
+            
         log(f"▶️ Now Playing: '{track.title}'")
+        
+        # Send message to channel if we have home set
+        if hasattr(player, 'home') and player.home:
+            embed = discord.Embed(
+                title="🎵 Now Playing", 
+                description=f"**[{track.title}]({track.uri})**",
+                color=0x00ff88
+            )
+            embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
+            embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
+            if track.artwork:
+                embed.set_thumbnail(url=track.artwork)
+            try:
+                await player.home.send(embed=embed)
+            except Exception as e:
+                log(f"⚠️ Failed to send now playing: {e}", "WARN")
     except Exception as e:
-        log(f"⚠️ Track start error: {e}", "ERROR")
+        log(f"❌ Track start error: {e}", "ERROR")
+        traceback.print_exc()
 
-# SIMPLIFIED: Minimal track end event  
-@bot.event
-async def on_wavelink_track_end(payload):
-    try:
-        log(f"⏹️ Track ended")
-    except Exception as e:
-        log(f"⚠️ Track end error: {e}", "ERROR")
+# REMOVED: on_wavelink_track_end - Wavelink 3.x advises against using this!
+# Let Wavelink handle queue automatically
 
 async def connect_voice(interaction):
     """Simple voice connection"""
@@ -98,7 +116,6 @@ async def connect_voice(interaction):
 
     channel = interaction.user.voice.channel
 
-    # Check existing connection
     if interaction.guild.voice_client:
         player = interaction.guild.voice_client
         if player.channel.id == channel.id:
@@ -106,7 +123,6 @@ async def connect_voice(interaction):
         await player.move_to(channel)
         return player, None
 
-    # Connect
     try:
         player = await channel.connect(cls=wavelink.Player, self_deaf=False)
         await asyncio.sleep(0.5)
@@ -114,8 +130,9 @@ async def connect_voice(interaction):
         if not player.connected:
             await player.disconnect()
             return None, "❌ Connection failed!"
-        
-        # Just set volume, no filters
+
+        # Set home channel for messages
+        player.home = interaction.channel
         await player.set_volume(100)
         log(f"✅ Connected to {channel.name}")
         return player, None
@@ -129,14 +146,12 @@ async def play(interaction, query: str):
     try:
         log(f"🎵 Play: '{query[:50]}...'")
         
-        # Connect first
         player, error = await connect_voice(interaction)
         if error:
             return await interaction.response.send_message(error, ephemeral=True)
         
         await interaction.response.defer(thinking=True)
         
-        # Simple search
         log("🔍 Searching...")
         tracks = await wavelink.Playable.search(query)
         
@@ -146,12 +161,10 @@ async def play(interaction, query: str):
         track = tracks[0]
         log(f"🎵 Found: {track.title}")
         
-        # Play with NO extra processing
         log("▶️ Starting playback...")
         await player.play(track)
         log("✅ Play command sent")
         
-        # Simple embed
         embed = discord.Embed(
             title="🎵 Now Playing", 
             description=f"**[{track.title}]({track.uri})**",
@@ -161,7 +174,6 @@ async def play(interaction, query: str):
         embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
         
         await interaction.followup.send(embed=embed)
-        log("✅ Message sent")
         
     except Exception as e:
         log(f"❌ Play error: {e}", "ERROR")
@@ -183,20 +195,8 @@ async def disconnect(interaction):
         log(f"❌ Disconnect error: {e}", "ERROR")
         await interaction.response.send_message("❌ Error", ephemeral=True)
 
-@bot.tree.command(name="stop", description="⏹️ Stop")
-async def stop(interaction):
-    try:
-        player = interaction.guild.voice_client
-        if not player:
-            return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
-        await player.stop()
-        await interaction.response.send_message("⏹️ Stopped")
-    except Exception as e:
-        log(f"❌ Stop error: {e}", "ERROR")
-        await interaction.response.send_message("❌ Error", ephemeral=True)
-
 log("=" * 50)
-log("🎶 HARMIX MINIMAL TEST VERSION")
+log("🎶 HARMIX - EVENTS FIXED")
 log("=" * 50)
 
 bot.run(TOKEN)
