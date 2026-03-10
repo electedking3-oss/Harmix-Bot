@@ -33,7 +33,7 @@ HAS_TRACKSOURCE = hasattr(wavelink, 'TrackSource')
 log(f"TrackSource available: {HAS_TRACKSOURCE}")
 
 # -------------------- AUDIO CUSTOMIZATION --------------------
-VOLUME_ON_JOIN = 65
+VOLUME_ON_JOIN = 100  # Increased to 100 for testing
 MAX_VOLUME = 200
 
 CUSTOM_EQ_BANDS = [
@@ -47,7 +47,7 @@ CUSTOM_EQ_BANDS = [
     {"band": 14, "gain": 0.0},
 ]
 
-FILTERS_VOLUME = 0.65
+FILTERS_VOLUME = 1.0  # Changed to 1.0 (100%)
 TIMESCALE_SPEED = 1.0
 TIMESCALE_PITCH = 1.0
 TIMESCALE_RATE = 1.0
@@ -146,46 +146,20 @@ def detect_source(query):
     return "youtube"
 
 async def apply_audio_settings(player):
+    """DISABLED FOR TESTING - Just set volume"""
     try:
-        filters = wavelink.Filters()
-        filters.volume = FILTERS_VOLUME
+        # SIMPLIFIED: Just set volume, skip all filters for now
+        await player.set_volume(VOLUME_ON_JOIN)
+        log(f"✅ Volume set to {VOLUME_ON_JOIN}%")
         
-        # FIXED: Wavelink 3.x uses .set() method
-        filters.equalizer.set(bands=CUSTOM_EQ_BANDS)
-        filters.timescale.set(speed=TIMESCALE_SPEED, pitch=TIMESCALE_PITCH, rate=TIMESCALE_RATE)
-
-        if ENABLE_KARAOKE:
-            filters.karaoke.set(level=1.0, mono_level=1.0, filter_band=220.0, filter_width=100.0)
-        else:
-            filters.karaoke.reset()
-        if ENABLE_TREMOLO:
-            filters.tremolo.set(frequency=5.0, depth=0.5)
-        else:
-            filters.tremolo.reset()
-        if ENABLE_VIBRATO:
-            filters.vibrato.set(frequency=5.0, depth=0.5)
-        else:
-            filters.vibrato.reset()
-        if ENABLE_ROTATION:
-            filters.rotation.set(rotation_hz=0.0)
-        else:
-            filters.rotation.reset()
-        if ENABLE_DISTORTION:
-            filters.distortion.set(sin_offset=0.0, sin_scale=1.0, cos_offset=0.0, cos_scale=1.0, tan_offset=0.0, tan_scale=1.0, offset=0.0, scale=1.0)
-        else:
-            filters.distortion.reset()
-
-        filters.channel_mix.set(left_to_left=LEFT_TO_LEFT, left_to_right=LEFT_TO_RIGHT, right_to_left=RIGHT_TO_LEFT, right_to_right=RIGHT_TO_RIGHT)
-
-        if ENABLE_LOW_PASS:
-            filters.low_pass.set(smoothing=0.0)
-        else:
-            filters.low_pass.reset()
-
-        await player.set_filters(filters)
-        log(f"✅ Audio filters applied")
+        # TODO: Re-enable filters once basic playback works
+        # filters = wavelink.Filters()
+        # filters.volume = FILTERS_VOLUME
+        # filters.equalizer.set(bands=CUSTOM_EQ_BANDS)
+        # await player.set_filters(filters)
+        
     except Exception as e:
-        log(f"⚠️ Audio error: {e}", "ERROR")
+        log(f"⚠️ Audio settings error: {e}", "ERROR")
 
 @bot.event
 async def on_wavelink_node_ready(payload):
@@ -195,7 +169,7 @@ async def on_wavelink_node_ready(payload):
 async def on_wavelink_track_start(payload):
     player = payload.player
     track = payload.track
-    log(f"▶️ Playing: '{track.title}'")
+    log(f"▶️ Track STARTED: '{track.title}' | URI: {track.uri}")
 
     if hasattr(player, 'home') and player.home:
         embed = discord.Embed(title="🎵 Now Playing", description=f"**[{track.title}]({track.uri})**", color=COLOR_NOW_PLAYING)
@@ -212,175 +186,16 @@ async def on_wavelink_track_start(payload):
 async def on_wavelink_track_end(payload):
     player = payload.player
     track = payload.track
+    reason = payload.reason if hasattr(payload, 'reason') else 'unknown'
+    log(f"⏹️ Track ENDED: '{track.title}' | Reason: {reason}")
 
     if bot.loop_mode.get(player.guild.id) == "track":
         await player.queue.put_wait(track)
 
     if not player.queue.is_empty:
         next_track = player.queue.get()
+        log(f"⏭️ Auto-playing next: {next_track.title}")
         await player.play(next_track)
-        await apply_audio_settings(player)
-
-async def connect_voice(interaction):
-    """Connect to voice channel - STABILIZED VERSION"""
-    log(f"🔊 Voice request from {interaction.user}")
-
-    if not bot.lavalink_connected:
-        returnCOLOR_STOPPED = 0xff0000
-
-# =============================================================================
-# ======================== END OF CONFIGURATION ===============================
-# =============================================================================
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.voice_states = True
-
-class HarmixBot(commands.Bot):
-    def __init__(self):
-        super().__init__(command_prefix="!", intents=intents, help_command=None)
-        self.loop_mode = {}
-        self.lavalink_connected = False
-
-    async def setup_hook(self):
-        log("🚀 Starting Harmix...", "START")
-
-        # Connect to Lavalink
-        try:
-            log("🔄 Connecting to Lavalink...")
-            node = wavelink.Node(
-                uri=f"ws://{LAVALINK_HOST}:{LAVALINK_PORT}",
-                password=LAVALINK_PASSWORD
-            )
-            await wavelink.Pool.connect(nodes=[node], client=self, cache_capacity=100)
-            self.lavalink_connected = True
-            log(f"✅ Lavalink connected")
-        except Exception as e:
-            self.lavalink_connected = False
-            log(f"❌ Lavalink failed: {e}", "ERROR")
-            traceback.print_exc()
-
-        try:
-            synced = await self.tree.sync()
-            log(f"✅ Synced {len(synced)} commands")
-        except Exception as e:
-            log(f"⚠️ Sync error: {e}", "WARN")
-
-        self.loop.create_task(self.monitor())
-
-    async def on_ready(self):
-        status = "✅ OK" if self.lavalink_connected else "❌ FAIL"
-        log(f"🎶 Harmix Online | {self.user} | {status}")
-        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="/help"))
-
-    async def monitor(self):
-        await self.wait_until_ready()
-        while not self.is_closed():
-            try:
-                active = sum(1 for g in self.guilds if g.voice_client)
-                log(f"📊 Servers: {len(self.guilds)} | Voice: {active}")
-            except:
-                pass
-            await asyncio.sleep(30)
-
-bot = HarmixBot()
-
-def format_duration(ms):
-    if not ms or ms < 0:
-        return "Unknown"
-    seconds = ms // 1000
-    minutes = seconds // 60
-    hours = minutes // 60
-    if hours > 0:
-        return f"{hours}:{minutes % 60:02d}:{seconds % 60:02d}"
-    return f"{minutes}:{seconds % 60:02d}"
-
-def get_loop_emoji(mode):
-    return {"off": "⏹️", "track": "🔂", "queue": "🔁"}.get(mode, "⏹️")
-
-def detect_source(query):
-    q = query.lower()
-    if "spotify.com" in q:
-        return "spotify"
-    elif "music.apple.com" in q or "apple.co" in q:
-        return "applemusic"
-    return "youtube"
-
-async def apply_audio_settings(player):
-    try:
-        filters = wavelink.Filters()
-        filters.volume = FILTERS_VOLUME
-        
-        # FIXED: Wavelink 3.x uses .set() method
-        filters.equalizer.set(bands=CUSTOM_EQ_BANDS)
-        filters.timescale.set(speed=TIMESCALE_SPEED, pitch=TIMESCALE_PITCH, rate=TIMESCALE_RATE)
-
-        if ENABLE_KARAOKE:
-            filters.karaoke.set(level=1.0, mono_level=1.0, filter_band=220.0, filter_width=100.0)
-        else:
-            filters.karaoke.reset()
-        if ENABLE_TREMOLO:
-            filters.tremolo.set(frequency=5.0, depth=0.5)
-        else:
-            filters.tremolo.reset()
-        if ENABLE_VIBRATO:
-            filters.vibrato.set(frequency=5.0, depth=0.5)
-        else:
-            filters.vibrato.reset()
-        if ENABLE_ROTATION:
-            filters.rotation.set(rotation_hz=0.0)
-        else:
-            filters.rotation.reset()
-        if ENABLE_DISTORTION:
-            filters.distortion.set(sin_offset=0.0, sin_scale=1.0, cos_offset=0.0, cos_scale=1.0, tan_offset=0.0, tan_scale=1.0, offset=0.0, scale=1.0)
-        else:
-            filters.distortion.reset()
-
-        filters.channel_mix.set(left_to_left=LEFT_TO_LEFT, left_to_right=LEFT_TO_RIGHT, right_to_left=RIGHT_TO_LEFT, right_to_right=RIGHT_TO_RIGHT)
-
-        if ENABLE_LOW_PASS:
-            filters.low_pass.set(smoothing=0.0)
-        else:
-            filters.low_pass.reset()
-
-        await player.set_filters(filters)
-        log(f"✅ Audio filters applied")
-    except Exception as e:
-        log(f"⚠️ Audio error: {e}", "ERROR")
-
-@bot.event
-async def on_wavelink_node_ready(payload):
-    log(f"🎵 Lavalink node ready: {payload.node.uri}")
-
-@bot.event
-async def on_wavelink_track_start(payload):
-    player = payload.player
-    track = payload.track
-    log(f"▶️ Playing: '{track.title}'")
-
-    if hasattr(player, 'home') and player.home:
-        embed = discord.Embed(title="🎵 Now Playing", description=f"**[{track.title}]({track.uri})**", color=COLOR_NOW_PLAYING)
-        embed.add_field(name="Artist", value=track.author or "Unknown", inline=True)
-        embed.add_field(name="Duration", value=format_duration(track.length), inline=True)
-        if track.artwork:
-            embed.set_thumbnail(url=track.artwork)
-        try:
-            await player.home.send(embed=embed)
-        except:
-            pass
-
-@bot.event
-async def on_wavelink_track_end(payload):
-    player = payload.player
-    track = payload.track
-
-    if bot.loop_mode.get(player.guild.id) == "track":
-        await player.queue.put_wait(track)
-
-    if not player.queue.is_empty:
-        next_track = player.queue.get()
-        await player.play(next_track)
-        await apply_audio_settings(player)
 
 async def connect_voice(interaction):
     """Connect to voice channel - STABILIZED VERSION"""
@@ -400,37 +215,32 @@ async def connect_voice(interaction):
     if not perms.connect or not perms.speak:
         return None, "❌ I need Connect and Speak permissions!"
 
-    # FIXED: Check if already connected and return existing player
+    # Check if already connected
     if interaction.guild.voice_client:
         try:
             player = interaction.guild.voice_client
-            # If already in right channel, just return it
             if player.channel.id == channel.id:
                 log(f"✅ Already connected to {channel.name}")
                 return player, None
-            # If in different channel, move
             log(f"🔄 Moving to {channel.name}")
             await player.move_to(channel)
             return player, None
         except Exception as e:
             log(f"⚠️ Error with existing connection: {e}", "ERROR")
-            # Try to cleanup broken connection
             try:
                 await player.disconnect()
             except:
                 pass
 
-    # FIXED: Single connection attempt (removed retry loop that caused issues)
+    # Connect with timeout
     try:
         log(f"🚀 Connecting to {channel.name}...")
         
-        # FIXED: self_deaf=False so bot can play audio
         player = await asyncio.wait_for(
             channel.connect(cls=wavelink.Player, self_deaf=False),
             timeout=10.0
         )
         
-        # Wait briefly for connection to stabilize
         await asyncio.sleep(0.5)
         
         if not player.connected:
@@ -438,13 +248,9 @@ async def connect_voice(interaction):
             return None, "❌ **Connection failed!**"
 
         player.home = interaction.channel
-        await player.set_volume(VOLUME_ON_JOIN)
         
-        # Apply filters but don't fail if they don't work
-        try:
-            await apply_audio_settings(player)
-        except Exception as e:
-            log(f"⚠️ Filter error (non-critical): {e}", "WARN")
+        # Apply simple settings (just volume)
+        await apply_audio_settings(player)
 
         log(f"✅ Connected to {channel.name}")
         return player, None
@@ -457,15 +263,12 @@ async def connect_voice(interaction):
         log(f"❌ Connection failed: {error_str}", "ERROR")
         return None, f"❌ **Connection failed:** {error_str[:100]}"
 
-# UNIVERSAL SEARCH FUNCTION - Works with any Wavelink version
 async def search_tracks(query: str, source: str):
-    """Universal track search that works with any Wavelink version"""
+    """Universal track search"""
     try:
         log(f"🔍 Searching: {query[:50]}... (source: {source})")
 
-        # Try different search methods based on Wavelink version
         if HAS_TRACKSOURCE:
-            # Wavelink 3.x+ with TrackSource
             try:
                 if source == "spotify":
                     return await wavelink.Playable.search(query, source=wavelink.TrackSource.Spotify)
@@ -474,11 +277,8 @@ async def search_tracks(query: str, source: str):
                 else:
                     return await wavelink.Playable.search(query, source=wavelink.TrackSource.YouTube)
             except AttributeError:
-                # TrackSource exists but attributes don't
                 pass
 
-        # Fallback: Use generic search without source
-        log(f"🔍 Using generic search...")
         return await wavelink.Playable.search(query)
 
     except Exception as e:
@@ -517,38 +317,47 @@ async def help_cmd(interaction):
 async def play(interaction, query: str):
     player = None
     try:
-        log(f"🎵 Play: '{query[:50]}...'")
+        log(f"🎵 Play command: '{query[:50]}...'")
 
-        # Check connection first, then defer to avoid timeout
         player, error = await connect_voice(interaction)
         if error:
             return await interaction.response.send_message(error, ephemeral=True)
         
-        # Defer AFTER quick checks to avoid 404 interaction error
         await interaction.response.defer(thinking=True)
 
         source = detect_source(query)
-        log(f"🔍 Detected source: {source}")
+        log(f"🔍 Source: {source}")
 
-        # Use universal search
+        # Search
         tracks = await search_tracks(query, source)
+        log(f"🔍 Found: {len(tracks) if tracks else 0} tracks")
 
         if not tracks:
-            return await interaction.followup.send("❌ No tracks found! Try a different query.")
+            return await interaction.followup.send("❌ No tracks found!")
 
         if isinstance(tracks, wavelink.Playlist):
+            # Playlist
+            log(f"📋 Playlist: {len(tracks.tracks)} tracks")
             for i, track in enumerate(tracks.tracks):
+                log(f"  Track {i+1}: {track.title[:50]}")
                 if not player.playing and i == 0:
+                    log(f"🎵 Playing first track...")
                     await player.play(track)
-                    await apply_audio_settings(player)
                 else:
                     await player.queue.put_wait(track)
             await interaction.followup.send(f"📋 Added {len(tracks.tracks)} tracks from playlist")
         else:
+            # Single track
             track = tracks[0]
+            log(f"🎵 Single track: {track.title}")
+            log(f"   URI: {track.uri}")
+            log(f"   Length: {track.length}ms")
+            log(f"   Author: {track.author}")
+            
             if not player.playing:
+                log(f"▶️ Starting playback...")
                 await player.play(track)
-                await apply_audio_settings(player)
+                log(f"✅ Play command sent")
                 title, color = "🎵 Now Playing", COLOR_NOW_PLAYING
             else:
                 await player.queue.put_wait(track)
@@ -566,7 +375,6 @@ async def play(interaction, query: str):
         log(f"❌ Play error: {error_str}", "ERROR")
         traceback.print_exc()
 
-        # Cleanup on error
         if player and player.connected:
             try:
                 await player.disconnect()
@@ -574,12 +382,7 @@ async def play(interaction, query: str):
                 pass
 
         try:
-            if "Failed to load tracks" in error_str:
-                await interaction.followup.send("❌ **Track loading failed!**\n\nThis is usually because:\n1. YouTube is blocking Lavalink\n2. The track is region-restricted\n3. Lavalink doesn't have the right plugins\n\nTry a different link or check Lavalink logs.")
-            elif "TrackSource" in error_str:
-                await interaction.followup.send(f"❌ **Wavelink API Error**\n\nYour Wavelink version ({wavelink.__version__}) has a different API.")
-            else:
-                await interaction.followup.send(f"❌ Error: {error_str[:200]}")
+            await interaction.followup.send(f"❌ Error: {error_str[:200]}")
         except:
             pass
 
@@ -704,17 +507,13 @@ async def disconnect(interaction):
         if not player:
             return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
         
-        # FIXED: Proper cleanup before disconnect
         player.queue.clear()
         bot.loop_mode[interaction.guild.id] = "off"
         
-        # Stop playing first
         if player.playing:
             await player.stop()
         
-        # Small delay to ensure cleanup
         await asyncio.sleep(0.5)
-        
         await player.disconnect()
         await interaction.response.send_message(embed=discord.Embed(title="👋 Disconnected", color=COLOR_QUEUE))
     except Exception as e:
@@ -722,7 +521,7 @@ async def disconnect(interaction):
         await interaction.response.send_message("❌ Error disconnecting", ephemeral=True)
 
 log("=" * 50)
-log("🎶 HARMIX STARTING - FULLY FIXED")
+log("🎶 HARMIX STARTING - FILTERS DISABLED FOR TESTING")
 log(f"Wavelink: {wavelink.__version__}")
 log(f"TrackSource: {HAS_TRACKSOURCE}")
 log("=" * 50)
