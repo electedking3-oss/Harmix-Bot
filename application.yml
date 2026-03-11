@@ -13,7 +13,7 @@ lavalink:
   server:
     password: "LkJhGfDsA19181716"
     sources:
-      youtube: false  # Disabled built-in (using plugin instead)
+      youtube: false
       bandcamp: true
       soundcloud: true
       twitch: true
@@ -49,14 +49,10 @@ plugins:
     allowSearch: true
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
+    # FIXED: Only use clients that don't need signature cipher
     clients:
-      - MUSIC
-      - WEB
-      - WEBEMBEDDED
       - ANDROID_VR
-      - TV
       - TVHTML5_SIMPLY
-    # FIXED: Enable OAuth to bypass cipher issues
     oauth:
       enabled: true
       skipInitialization: false
