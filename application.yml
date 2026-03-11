@@ -56,21 +56,24 @@ plugins:
       - ANDROID_VR
       - TV
       - TVHTML5_SIMPLY
+    # FIXED: Enable OAuth to bypass cipher issues
     oauth:
-      enabled: false
+      enabled: true
       skipInitialization: false
+    pot:
+      enabled: false
 
   lavasrc:
     providers:
-      - "ytsearch:\"%ISRC%\""  # YouTube fallback
-      - "ytsearch:%QUERY%"     # YouTube search
-      - "amsearch:%QUERY%"     # Apple Music search
+      - "ytsearch:\"%ISRC%\""
+      - "ytsearch:%QUERY%"
+      - "amsearch:%QUERY%"
     sources:
-      spotify: false        # DISABLED - Requires Premium now
-      applemusic: true      # ENABLED
+      spotify: false
+      applemusic: true
       deezer: false
     applemusic:
-      countryCode: "US"     # Change to your country if needed
+      countryCode: "US"
       playlistLoadLimit: 6
       albumLoadLimit: 6
 
