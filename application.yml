@@ -49,13 +49,11 @@ plugins:
     allowSearch: true
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
-    # FIXED: Only use clients that don't need signature cipher
     clients:
       - ANDROID_VR
       - TVHTML5_SIMPLY
     oauth:
-      enabled: true
-      skipInitialization: false
+      enabled: false  # Disable broken OAuth
     pot:
       enabled: false
 
@@ -63,15 +61,17 @@ plugins:
     providers:
       - "ytsearch:\"%ISRC%\""
       - "ytsearch:%QUERY%"
+      - "scsearch:%QUERY%"
       - "amsearch:%QUERY%"
     sources:
+      youtube: true  # Enable LavaSrc YouTube as backup
       spotify: false
       applemusic: true
       deezer: false
+    youtube:
+      countryCode: "US"
     applemusic:
       countryCode: "US"
-      playlistLoadLimit: 6
-      albumLoadLimit: 6
 
 logging:
   level:
