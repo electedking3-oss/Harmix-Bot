@@ -9,6 +9,10 @@ from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
+LAVALINK_HOST = "localhost"
+LAVALINK_PORT = 2333
+LAVALINK_PASSWORD = "LkJhGfDsA19181716"
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
@@ -22,26 +26,24 @@ async def on_ready():
     try:
         await pomice.NodePool().create_node(
             bot=bot,
-            host="localhost",
-            port=2333,
-            password="LkJhGfDsA19181716",
+            host=LAVALINK_HOST,
+            port=LAVALINK_PORT,
+            password=LAVALINK_PASSWORD,
             identifier="MAIN_NODE"
         )
         print("✅ Lavalink connected")
     except Exception as e:
         print(f"❌ Lavalink error: {e}")
 
-@bot.tree.command(name="play", description="🎵 Play music")
+@bot.tree.command(name="play", description="🎵 Play music (Apple Music & SoundCloud)")
 async def play(interaction: discord.Interaction, query: str):
     await interaction.response.defer(thinking=True)
     
-    # Check voice
     if not interaction.user.voice:
         return await interaction.followup.send("❌ Join a voice channel!")
     
     channel = interaction.user.voice.channel
     
-    # Connect or get player
     player = interaction.guild.voice_client
     if not player:
         try:
@@ -49,47 +51,45 @@ async def play(interaction: discord.Interaction, query: str):
             print(f"✅ Connected to {channel.name}")
         except Exception as e:
             return await interaction.followup.send(f"❌ Connection failed: {e}")
+    elif player.channel.id != channel.id:
+        await player.move_to(channel)
     
-    # Search
     try:
         print(f"🔍 Searching: {query}")
+        
+        # Determine source from query
+        if "music.apple.com" in query.lower():
+            source = "Apple Music"
+        elif "soundcloud.com" in query.lower():
+            source = "SoundCloud"
+        else:
+            source = "Apple Music/SoundCloud"
+        
+        # Search
         results = await player.get_tracks(query=query)
         
         if not results:
-            return await interaction.followup.send("❌ No tracks found!")
+            return await interaction.followup.send("❌ No tracks found! Try Apple Music or SoundCloud links.")
         
         track = results[0] if not isinstance(results, pomice.Playlist) else results.tracks[0]
-        print(f"🎵 Playing: {track.title}")
+        print(f"🎵 Found: {track.title} from {source}")
         
-        # SIMPLE PLAY - No filters, no volume changes, just play
+        # Play
         await player.play(track)
+        print(f"▶️ Playing: {track.title}")
         
         # Check if actually playing
+        await asyncio.sleep(1)
         print(f"   is_playing: {player.is_playing}")
-        print(f"   volume: {player.volume}")
         print(f"   position: {player.position}")
         
-        await interaction.followup.send(f"🎵 Now Playing: **{track.title}**")
+        await interaction.followup.send(f"🎵 Now Playing: **{track.title}** ({source})")
         
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
         await interaction.followup.send(f"❌ Error: {e}")
-
-@bot.tree.command(name="volume", description="🔊 Check/Set volume")
-async def volume(interaction: discord.Interaction, vol: int = None):
-    player = interaction.guild.voice_client
-    if not player:
-        return await interaction.response.send_message("❌ Not connected!", ephemeral=True)
-    
-    if vol is None:
-        # Just check current volume
-        return await interaction.response.send_message(f"🔊 Current volume: {player.volume}%")
-    
-    # Set volume
-    await player.set_volume(vol)
-    await interaction.response.send_message(f"🔊 Volume set to: {vol}%")
 
 @bot.tree.command(name="disconnect", description="👋 Disconnect")
 async def disconnect(interaction: discord.Interaction):
@@ -100,5 +100,5 @@ async def disconnect(interaction: discord.Interaction):
     await player.destroy()
     await interaction.response.send_message("👋 Disconnected")
 
-print("🚀 Starting Harmix...")
+print("🚀 Starting Harmix (Apple Music + SoundCloud only)...")
 bot.run(TOKEN)
