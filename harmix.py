@@ -9,10 +9,6 @@ from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
-LAVALINK_HOST = "localhost"
-LAVALINK_PORT = 2333
-LAVALINK_PASSWORD = "LkJhGfDsA19181716"
-
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
@@ -26,16 +22,16 @@ async def on_ready():
     try:
         await pomice.NodePool().create_node(
             bot=bot,
-            host=LAVALINK_HOST,
-            port=LAVALINK_PORT,
-            password=LAVALINK_PASSWORD,
+            host="localhost",
+            port=2333,
+            password="LkJhGfDsA19181716",
             identifier="MAIN_NODE"
         )
         print("✅ Lavalink connected")
     except Exception as e:
         print(f"❌ Lavalink error: {e}")
 
-@bot.tree.command(name="play", description="🎵 Play music (Apple Music & SoundCloud)")
+@bot.tree.command(name="play", description="🎵 Play music (SoundCloud & direct links)")
 async def play(interaction: discord.Interaction, query: str):
     await interaction.response.defer(thinking=True)
     
@@ -57,33 +53,36 @@ async def play(interaction: discord.Interaction, query: str):
     try:
         print(f"🔍 Searching: {query}")
         
-        # Determine source from query
-        if "music.apple.com" in query.lower():
-            source = "Apple Music"
-        elif "soundcloud.com" in query.lower():
-            source = "SoundCloud"
+        # Check if direct URL or search
+        if query.startswith("http"):
+            # Direct URL
+            results = await player.get_tracks(query=query)
         else:
-            source = "Apple Music/SoundCloud"
-        
-        # Search
-        results = await player.get_tracks(query=query)
+            # Search on SoundCloud
+            results = await player.get_tracks(query=f"scsearch:{query}")
         
         if not results:
-            return await interaction.followup.send("❌ No tracks found! Try Apple Music or SoundCloud links.")
+            return await interaction.followup.send("❌ No tracks found!")
         
         track = results[0] if not isinstance(results, pomice.Playlist) else results.tracks[0]
-        print(f"🎵 Found: {track.title} from {source}")
+        print(f"🎵 Found: {track.title}")
+        print(f"   URI: {track.uri}")
+        print(f"   Length: {track.length}ms")
         
         # Play
         await player.play(track)
-        print(f"▶️ Playing: {track.title}")
+        print(f"▶️ Play command sent")
         
-        # Check if actually playing
-        await asyncio.sleep(1)
+        # Wait and check
+        await asyncio.sleep(2)
         print(f"   is_playing: {player.is_playing}")
         print(f"   position: {player.position}")
+        print(f"   volume: {player.volume}")
         
-        await interaction.followup.send(f"🎵 Now Playing: **{track.title}** ({source})")
+        if player.is_playing:
+            await interaction.followup.send(f"🎵 Now Playing: **{track.title}**")
+        else:
+            await interaction.followup.send(f"⚠️ Track loaded but not playing. Check Lavalink logs.")
         
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -100,5 +99,5 @@ async def disconnect(interaction: discord.Interaction):
     await player.destroy()
     await interaction.response.send_message("👋 Disconnected")
 
-print("🚀 Starting Harmix (Apple Music + SoundCloud only)...")
+print("🚀 Starting Harmix (SoundCloud + Direct URLs)...")
 bot.run(TOKEN)
